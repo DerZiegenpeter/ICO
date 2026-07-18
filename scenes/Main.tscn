@@ -6,6 +6,15 @@
 [sub_resource type="Environment" id="Environment_x2pih"]
 background_mode = 2
 
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_x2pih"]
+albedo_color = Color(0, 0, 0, 1)
+roughness = 0.0
+
+[sub_resource type="SphereMesh" id="SphereMesh_0bj4a"]
+material = SubResource("StandardMaterial3D_x2pih")
+radius = 20.0
+height = 40.0
+
 [node name="World" type="Node3D" unique_id=1116617914]
 script = ExtResource("1_rvslj")
 
@@ -15,3 +24,6 @@ script = ExtResource("1_elqb8")
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=838830280]
 environment = SubResource("Environment_x2pih")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="." unique_id=593084468]
+mesh = SubResource("SphereMesh_0bj4a")
