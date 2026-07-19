@@ -5,10 +5,10 @@ enum Type { LAND, AIR, NAVAL, BALLISTIC }
 
 @export var entity_type: Type = Type.LAND
 @export var move_speed: float = 6.0
-## World-size of the unit. ~hex radius * 0.85 makes it almost hex-sized.
 @export var size: float = 8.5
 @export var color: Color = Color(1.0, 0.9, 0.2)
 @export var unit_name: String = ""
+@export var nation_id: String = ""
 
 var target_pos: Vector3
 var selected := false
@@ -17,6 +17,9 @@ var mesh_instance: MeshInstance3D
 var path: Array[Vector3] = []
 var path_index: int = 0
 var moving := false
+
+## Called when unit arrives at a hex (path finished or teleported)
+signal arrived(unit: MilEntity)
 
 func _ready() -> void:
 	target_pos = position
@@ -28,22 +31,35 @@ func _process(delta: float) -> void:
 		return
 
 	var waypoint = path[path_index]
-	position = position.lerp(waypoint, 1.0 - exp(-move_speed * delta))
+	var goal = Vector3(waypoint.x, _height(), waypoint.z)
+	position = position.lerp(goal, 1.0 - exp(-move_speed * delta))
 
-	# Arrival threshold relative to hex size
-	if position.distance_to(waypoint) < 0.8:
+	if position.distance_to(goal) < 0.8:
 		path_index += 1
 		if path_index >= path.size():
 			moving = false
-			position = waypoint
-			target_pos = waypoint
+			position = goal
+			target_pos = goal
 			path.clear()
+			arrived.emit(self)
 		else:
-			target_pos = path[path_index]
+			var next = path[path_index]
+			target_pos = Vector3(next.x, _height(), next.z)
+
+func _height() -> float:
+	match entity_type:
+		Type.LAND, Type.NAVAL:
+			return 0.2
+		Type.AIR:
+			return size * 0.9		# clearly above land/naval
+		Type.BALLISTIC:
+			return size * 1.7		# above air
+	return 0.2
 
 func set_hex_position(pos: Vector3) -> void:
-	target_pos = pos
-	position = pos
+	var p = Vector3(pos.x, _height(), pos.z)
+	target_pos = p
+	position = p
 	path.clear()
 	moving = false
 
@@ -52,11 +68,13 @@ func follow_path(new_path: Array[Vector3]) -> void:
 		return
 	if new_path.size() == 1:
 		set_hex_position(new_path[0])
+		arrived.emit(self)
 		return
 	path = new_path
 	path_index = 1
 	moving = true
-	target_pos = path[path_index]
+	var next = path[path_index]
+	target_pos = Vector3(next.x, _height(), next.z)
 
 func get_type_string() -> String:
 	match entity_type:
@@ -65,6 +83,9 @@ func get_type_string() -> String:
 		Type.NAVAL: return "naval"
 		Type.BALLISTIC: return "ballistic"
 	return "land"
+
+func get_ground_pos() -> Vector3:
+	return Vector3(position.x, 0.0, position.z)
 
 func select() -> void:
 	selected = true
@@ -105,7 +126,7 @@ func _build_mesh() -> void:
 
 func _build_rectangle(st: SurfaceTool) -> void:
 	var s = size * 0.45
-	var y = 0.15
+	var y = 0.0
 	var pts = [
 		Vector3(-s, y, -s), Vector3(s, y, -s),
 		Vector3(s, y, s), Vector3(-s, y, s)
@@ -149,6 +170,6 @@ func _build_sphere(st: SurfaceTool) -> void:
 func _sph(r: float, lat: float, lon: float) -> Vector3:
 	return Vector3(
 		r * cos(lat) * cos(lon),
-		r * sin(lat) + r * 0.3,
+		r * sin(lat),
 		r * cos(lat) * sin(lon)
 	)
