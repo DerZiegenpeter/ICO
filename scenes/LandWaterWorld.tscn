@@ -1,0 +1,31 @@
+[gd_scene format=3 uid="uid://ciuwdes71fjlt"]
+
+[ext_resource type="Script" uid="uid://b0nrxn1qlo343" path="res://scripts/LandWaterSphere.gd" id="1_1u38a"]
+[ext_resource type="Script" uid="uid://cosstlq716txu" path="res://scripts/CameraController.gd" id="2_s7kae"]
+
+[sub_resource type="Environment" id="Environment_jhvw1"]
+background_mode = 2
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_x2pih"]
+albedo_color = Color(0, 0, 0, 1)
+roughness = 0.0
+
+[sub_resource type="SphereMesh" id="SphereMesh_v7s3c"]
+material = SubResource("StandardMaterial3D_x2pih")
+radius = 50.0
+height = 100.0
+
+[node name="LandWaterWorld" type="Node3D" unique_id=1518177917]
+script = ExtResource("1_1u38a")
+land_color = Color(0.2, 0.6, 0.2, 1)
+water_color = Color(0.1, 0.3, 0.7, 1)
+generate_on_ready = false
+
+[node name="MainCamera" type="Camera3D" parent="." unique_id=371366209]
+script = ExtResource("2_s7kae")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1829427325]
+environment = SubResource("Environment_jhvw1")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="." unique_id=1468169443]
+mesh = SubResource("SphereMesh_v7s3c")

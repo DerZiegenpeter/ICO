@@ -75,10 +75,12 @@ func export_geojson(path: String = "") -> void:
 		
 		for i in face.size():
 			var lonlat = _cartesian_to_lonlat(last_dual_verts[face[i]])
-			ring.append([snapped(lonlat.x, 0.00001), snapped(lonlat.y, 0.00001)])
+			ring.append([lonlat.x, lonlat.y])
 		
 		if ring.size() > 0:
-			ring.append(ring[0])
+			ring.append(ring[0].duplicate())
+		
+		ring = _fix_antimeridian(ring)
 		
 		var feature = {
 			"type": "Feature",
@@ -117,6 +119,29 @@ func _cartesian_to_lonlat(v: Vector3) -> Vector2:
 	var lon = rad_to_deg(atan2(n.x, n.z))
 	var lat = rad_to_deg(asin(clamp(n.y, -1.0, 1.0)))
 	return Vector2(lon, lat)
+
+func _fix_antimeridian(ring: Array) -> Array:
+	if ring.size() < 2:
+		return ring
+	
+	var has_west = false
+	var has_east = false
+	for p in ring:
+		if p[0] < -90.0:
+			has_west = true
+		if p[0] > 90.0:
+			has_east = true
+	
+	if has_west and has_east:
+		var new_ring: Array = []
+		for p in ring:
+			var lon = p[0]
+			if lon < 0.0:
+				lon += 360.0
+			new_ring.append([lon, p[1]])
+		return new_ring
+	
+	return ring
 
 # ==================== Relaxation ====================
 

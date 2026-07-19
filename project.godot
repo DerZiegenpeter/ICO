@@ -11,7 +11,7 @@ config_version=5
 [application]
 
 config/name="ICO"
-run/main_scene="uid://bohybsgxffm6q"
+run/main_scene="uid://ciuwdes71fjlt"
 config/features=PackedStringArray("4.7", "Forward Plus")
 
 [display]
