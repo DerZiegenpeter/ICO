@@ -3,9 +3,6 @@
 [ext_resource type="Script" uid="uid://ch7htlaiwk7iq" path="res://scripts/LandWaterViewer.gd" id="2_rarhs"]
 [ext_resource type="Script" uid="uid://cosstlq716txu" path="res://scripts/CameraController.gd" id="3_vcsgt"]
 
-[sub_resource type="Environment" id="Environment_0bbpv"]
-background_mode = 2
-
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_glv2v"]
 roughness = 0.0
 
@@ -22,10 +19,11 @@ height = 100.0
 script = ExtResource("2_rarhs")
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=117235496]
-environment = SubResource("Environment_0bbpv")
 
 [node name="InnerBlackSphere" type="MeshInstance3D" parent="." unique_id=250653857]
 mesh = SubResource("SphereMesh_rxg2q")
 
 [node name="Camera3D" type="Camera3D" parent="." unique_id=352099116]
 script = ExtResource("3_vcsgt")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=1148442662]
