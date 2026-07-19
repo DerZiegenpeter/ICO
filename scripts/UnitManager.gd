@@ -14,34 +14,42 @@ func _ready() -> void:
 	_load_oob()
 
 func _load_oob() -> void:
+	if hex_map == null:
+		push_error("HexMap nicht gefunden")
+		return
 	if not FileAccess.file_exists(oob_path):
 		push_error("oob.json nicht gefunden")
 		return
+
 	var file = FileAccess.open(oob_path, FileAccess.READ)
 	var json = JSON.new()
 	if json.parse(file.get_as_text()) != OK:
+		push_error("oob.json Parse Fehler")
 		return
 	file.close()
-	
+
 	for entry in json.data:
 		var typ_str = str(entry.get("type", "land")).to_lower()
 		var typ = MilEntity.Type.LAND
 		match typ_str:
-			"air": typ = MilEntity.Type.AIR
-			"naval": typ = MilEntity.Type.NAVAL
-			"ballistic": typ = MilEntity.Type.BALLISTIC
-		
+			"air":
+				typ = MilEntity.Type.AIR
+			"naval":
+				typ = MilEntity.Type.NAVAL
+			"ballistic":
+				typ = MilEntity.Type.BALLISTIC
+
 		var lon = float(entry.get("lon", 10.0))
 		var lat = float(entry.get("lat", 51.0))
 		var unit_name = str(entry.get("name", "Unit"))
-		
+
 		var world_pos = hex_map.lonlat_to_world(lon, lat)
 		world_pos = hex_map.get_closest_hex_center(world_pos)
-		
+
 		var unit = spawn_unit(typ, world_pos)
 		unit.unit_name = unit_name
 		unit.name = unit_name
-	
+
 	print("OOB geladen – Einheiten: ", units.size())
 
 func spawn_unit(type: MilEntity.Type, hex_pos: Vector3) -> MilEntity:
@@ -63,21 +71,26 @@ func _input(event: InputEvent) -> void:
 
 func _screen_to_ground(screen_pos: Vector2) -> Vector3:
 	var cam = get_viewport().get_camera_3d()
-	if cam == null: return Vector3.ZERO
+	if cam == null:
+		return Vector3.ZERO
 	var from = cam.project_ray_origin(screen_pos)
 	var dir = cam.project_ray_normal(screen_pos)
-	if abs(dir.y) < 0.00001: return Vector3.ZERO
+	if abs(dir.y) < 0.00001:
+		return Vector3.ZERO
 	return from + dir * (-from.y / dir.y)
 
 func _try_select(world_pos: Vector3) -> void:
 	var closest: MilEntity = null
-	var best_dist := 1.6
+	# Selection radius roughly half a hex
+	var best_dist := 10.0
 	for u in units:
 		var d = u.position.distance_to(world_pos)
 		if d < best_dist:
 			best_dist = d
 			closest = u
-	if selected: selected.deselect()
+
+	if selected:
+		selected.deselect()
 	selected = closest
 	if selected:
 		selected.select()
@@ -88,15 +101,15 @@ func _try_select(world_pos: Vector3) -> void:
 func _try_move(world_pos: Vector3) -> void:
 	if selected == null or hex_map == null:
 		return
-	
+
 	var unit_type = selected.get_type_string()
 	print("Suche Pfad für ", unit_type, "...")
-	
-	var path = hex_map.find_path(selected.position, world_pos, unit_type)
-	
+
+	var path: Array[Vector3] = hex_map.find_path(selected.position, world_pos, unit_type)
+
 	if path.is_empty():
 		print("Kein gültiger Pfad")
 		return
-	
+
 	print("Pfad mit ", path.size(), " Hexes gefunden")
 	selected.follow_path(path)
