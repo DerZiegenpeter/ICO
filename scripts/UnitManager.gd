@@ -112,7 +112,7 @@ func _load_oob() -> void:
 		unit.unit_name = unit_name
 		unit.nation = nation
 		unit.name = unit_name
-		# No longer auto-start combat on arrival
+		unit.arrived_at_hex.connect(_on_unit_arrived)
 
 	print("OOB geladen – Einheiten: ", units.size())
 
@@ -179,12 +179,23 @@ func _try_move(world_pos: Vector3) -> void:
 	var goal_center = hex_map.get_closest_hex_center(world_pos)
 	var enemy = _enemy_on_hex(goal_center, selected)
 
-	# Explicit attack order only: right-click on enemy hex starts combat
-	# Land/Naval stay put. Air/Ballistic also attack from current position.
+	# Explicit attack order on enemy hex
 	if enemy != null and can_fight(selected, enemy):
 		_end_combats_involving(selected)
-		_start_combat(selected, enemy)
-		print("⚔ Angriffsbefehl: ", selected.unit_name, " vs ", enemy.unit_name, " (keine Bewegung)")
+
+		if unit_type == "air" or unit_type == "ballistic":
+			# Air & Ballistic: move over the target, combat starts on arrival
+			print("Suche Pfad für ", unit_type, " (Angriff über Ziel)...")
+			var path: Array[Vector3] = hex_map.find_path(selected.get_ground_pos(), goal_center, unit_type)
+			if path.is_empty():
+				print("Kein gültiger Pfad zum Ziel")
+				return
+			print("Pfad mit ", path.size(), " Hexes gefunden – fliege/rakete zum Ziel")
+			selected.follow_path(path)
+		else:
+			# Land & Naval: stay put, start combat immediately
+			_start_combat(selected, enemy)
+			print("⚔ Angriffsbefehl: ", selected.unit_name, " vs ", enemy.unit_name, " (bleiben stehen)")
 		return
 
 	# Normal movement to empty / non-hostile hex
@@ -197,6 +208,19 @@ func _try_move(world_pos: Vector3) -> void:
 	print("Pfad mit ", path.size(), " Hexes gefunden")
 	_end_combats_involving(selected)
 	selected.follow_path(path)
+
+func _on_unit_arrived(unit: MilEntity) -> void:
+	# Only start combat when unit lands on the same hex as a fightable enemy
+	# (used by Air/Ballistic after they fly over the target)
+	var ground = unit.get_ground_pos()
+	for other in units:
+		if other == unit:
+			continue
+		if not can_fight(unit, other):
+			continue
+		if _same_hex(ground, other.get_ground_pos()):
+			_start_combat(unit, other)
+			return
 
 func _same_hex(a: Vector3, b: Vector3) -> bool:
 	return a.distance_to(b) < 1.5
