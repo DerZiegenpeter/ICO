@@ -1,32 +1,12 @@
 [gd_scene format=3 uid="uid://vipatwbo5xx1"]
 
-[ext_resource type="Script" uid="uid://ch7htlaiwk7iq" path="res://scripts/LandWaterViewer.gd" id="2_rarhs"]
-[ext_resource type="Script" uid="uid://cosstlq716txu" path="res://scripts/CameraController.gd" id="3_vcsgt"]
+[ext_resource type="Script" uid="uid://cosstlq716txu" path="res://scenes/CameraController.gd" id="1_rvslj"]
+[ext_resource type="Script" uid="uid://ni36xdkbpklb" path="res://scripts/HexMap.gd" id="2_0bbpv"]
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_glv2v"]
-roughness = 0.0
+[node name="Main" type="Node3D" unique_id=1397147966]
 
-[sub_resource type="SphereMesh" id="SphereMesh_rxg2q"]
-material = SubResource("StandardMaterial3D_glv2v")
-radius = 50.0
-height = 100.0
+[node name="Camera3D" type="Camera3D" parent="." unique_id=1564211600]
+script = ExtResource("1_rvslj")
 
-[node name="Main" type="Node3D" unique_id=538785834]
-
-[node name="HexGenerator" type="Node3D" parent="." unique_id=979735394]
-
-[node name="LandWaterViewer" type="Node3D" parent="." unique_id=1702756987]
-script = ExtResource("2_rarhs")
-radius = 50.0
-land_color = Color(0.22, 0.55, 0.18, 1)
-water_color = Color(0.1, 0.28, 0.65, 1)
-
-[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=117235496]
-
-[node name="InnerBlackSphere" type="MeshInstance3D" parent="." unique_id=250653857]
-mesh = SubResource("SphereMesh_rxg2q")
-
-[node name="Camera3D" type="Camera3D" parent="." unique_id=352099116]
-script = ExtResource("3_vcsgt")
-
-[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=1148442662]
+[node name="HexMap" type="Node3D" parent="." unique_id=716895893]
+script = ExtResource("2_0bbpv")
