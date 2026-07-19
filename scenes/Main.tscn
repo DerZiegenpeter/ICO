@@ -17,6 +17,9 @@ height = 100.0
 
 [node name="LandWaterViewer" type="Node3D" parent="." unique_id=1702756987]
 script = ExtResource("2_rarhs")
+radius = 50.0
+land_color = Color(0.22, 0.55, 0.18, 1)
+water_color = Color(0.1, 0.28, 0.65, 1)
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=117235496]
 
