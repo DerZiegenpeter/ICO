@@ -5,7 +5,7 @@ enum Type { LAND, AIR, NAVAL, BALLISTIC }
 
 @export var entity_type: Type = Type.LAND
 @export var move_speed: float = 6.0
-@export var size: float = 8.5
+@export var size: float = 13.0
 @export var color: Color = Color(1.0, 0.9, 0.2)
 @export var unit_name: String = ""
 @export var nation: String = ""

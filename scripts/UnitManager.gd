@@ -3,7 +3,7 @@ extends Node3D
 @export var hex_map_path: NodePath = NodePath("../HexMap")
 @export var oob_path: String = "res://data/oob.json"
 @export var diplomacy_path: String = "res://data/diplomacy.json"
-@export var combat_marker_size: float = 3.0
+@export var combat_marker_size: float = 4.0
 
 var hex_map: Node3D
 var selected: MilEntity = null
@@ -112,10 +112,9 @@ func _load_oob() -> void:
 		unit.unit_name = unit_name
 		unit.nation = nation
 		unit.name = unit_name
-		unit.arrived_at_hex.connect(_on_unit_arrived)
+		# No longer auto-start combat on arrival
 
 	print("OOB geladen – Einheiten: ", units.size())
-	_refresh_all_combats()
 
 func spawn_unit(type: MilEntity.Type, hex_pos: Vector3) -> MilEntity:
 	var unit = MilEntity.new()
@@ -146,7 +145,7 @@ func _screen_to_ground(screen_pos: Vector2) -> Vector3:
 
 func _try_select(world_pos: Vector3) -> void:
 	var closest: MilEntity = null
-	var best_dist := 10.0
+	var best_dist := 12.0
 	for u in units:
 		var d = u.get_ground_pos().distance_to(world_pos)
 		if d < best_dist:
@@ -180,29 +179,24 @@ func _try_move(world_pos: Vector3) -> void:
 	var goal_center = hex_map.get_closest_hex_center(world_pos)
 	var enemy = _enemy_on_hex(goal_center, selected)
 
+	# Explicit attack order only: right-click on enemy hex starts combat
+	# Land/Naval stay put. Air/Ballistic also attack from current position.
+	if enemy != null and can_fight(selected, enemy):
+		_end_combats_involving(selected)
+		_start_combat(selected, enemy)
+		print("⚔ Angriffsbefehl: ", selected.unit_name, " vs ", enemy.unit_name, " (keine Bewegung)")
+		return
+
+	# Normal movement to empty / non-hostile hex
 	print("Suche Pfad für ", unit_type, "...")
 	var path: Array[Vector3] = hex_map.find_path(selected.get_ground_pos(), goal_center, unit_type)
 	if path.is_empty():
 		print("Kein gültiger Pfad")
 		return
 
-	# If attacking an enemy: stop on the hex BEFORE the enemy hex
-	if enemy != null:
-		if path.size() >= 2:
-			path = path.slice(0, path.size() - 1)
-			print("Angriff auf ", enemy.unit_name, " – stoppe vor dem Feind-Hex")
-		elif path.size() == 1:
-			# Already on / next to target hex – start combat immediately, no move
-			_end_combats_involving(selected)
-			_start_combat(selected, enemy)
-			return
-
 	print("Pfad mit ", path.size(), " Hexes gefunden")
 	_end_combats_involving(selected)
 	selected.follow_path(path)
-
-func _on_unit_arrived(unit: MilEntity) -> void:
-	_check_combat_for(unit)
 
 func _same_hex(a: Vector3, b: Vector3) -> bool:
 	return a.distance_to(b) < 1.5
@@ -213,21 +207,6 @@ func _combat_key(a: MilEntity, b: MilEntity) -> String:
 	if ida < idb:
 		return ida + "|" + idb
 	return idb + "|" + ida
-
-func _check_combat_for(unit: MilEntity) -> void:
-	# Combat if adjacent (or same hex) to a fightable enemy
-	var ground = unit.get_ground_pos()
-	for other in units:
-		if other == unit:
-			continue
-		if not can_fight(unit, other):
-			continue
-		var dist = ground.distance_to(other.get_ground_pos())
-		# same hex OR neighboring hex (center distance ~18)
-		if dist < 1.5 or dist < (hex_map.neighbor_dist if hex_map.neighbor_dist > 0.0 else 22.0) * 1.05:
-			# Prefer starting combat when adjacent after an attack move
-			if dist < 1.5 or dist > 5.0:
-				_start_combat(unit, other)
 
 func _start_combat(a: MilEntity, b: MilEntity) -> void:
 	var key = _combat_key(a, b)
@@ -249,10 +228,6 @@ func _end_combats_involving(unit: MilEntity) -> void:
 			print("Combat beendet (", unit.unit_name, " bewegt sich)")
 	for key in to_remove:
 		combats.erase(key)
-
-func _refresh_all_combats() -> void:
-	for u in units:
-		_check_combat_for(u)
 
 func _create_combat_marker(a: MilEntity, b: MilEntity) -> MeshInstance3D:
 	var mid = (a.position + b.position) * 0.5
