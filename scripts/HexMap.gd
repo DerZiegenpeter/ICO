@@ -14,9 +14,24 @@ extends Node3D
 @export var ocean_color: Color = Color(0.15, 0.42, 0.92)
 @export var lake_color: Color = Color(0.4, 0.75, 0.98)
 
+## Zoom fade thresholds (camera height)
+@export var political_full_height: float = 380.0
+@export var political_fade_height: float = 140.0
+@export var hex_full_height: float = 90.0
+@export var hex_fade_height: float = 260.0
+@export var city_full_height: float = 55.0
+@export var city_fade_height: float = 120.0
+
 var mesh_instance: MeshInstance3D
 var occupation_mesh_instance: MeshInstance3D
 var city_lights_mesh_instance: MeshInstance3D
+var political_mesh_instance: MeshInstance3D
+
+var mat_hex: StandardMaterial3D
+var mat_occ: StandardMaterial3D
+var mat_city: StandardMaterial3D
+var mat_political: StandardMaterial3D
+
 var hex_centers: Array[Vector3] = []
 var hex_types: Array[String] = []
 var hex_owners: Array[String] = []
@@ -32,6 +47,32 @@ func _ready() -> void:
 	print("=== HexMap startet ===")
 	_load_nations()
 	load_and_draw()
+
+func _process(_delta: float) -> void:
+	_update_zoom_fade()
+
+func _update_zoom_fade() -> void:
+	var cam = get_viewport().get_camera_3d()
+	if cam == null:
+		return
+	var h = cam.position.y
+
+	# Political: fully visible high up, fades out when zooming in
+	var pol_alpha = smoothstep(political_fade_height, political_full_height, h)
+	# Hex wireframe + occupation: opposite
+	var hex_alpha = 1.0 - smoothstep(hex_full_height, hex_fade_height, h)
+	# Cities: only when quite close
+	var city_alpha = 1.0 - smoothstep(city_full_height, city_fade_height, h)
+
+	if mat_political:
+		mat_political.albedo_color = Color(1, 1, 1, pol_alpha)
+	if mat_hex:
+		mat_hex.albedo_color = Color(1, 1, 1, hex_alpha)
+	if mat_occ:
+		mat_occ.albedo_color = Color(1, 1, 1, hex_alpha)
+	if mat_city:
+		mat_city.albedo_color = Color(1, 1, 1, city_alpha)
+		mat_city.emission_energy_multiplier = 3.5 * city_alpha
 
 func _load_nations() -> void:
 	nation_colors.clear()
@@ -72,6 +113,8 @@ func load_and_draw() -> void:
 		occupation_mesh_instance.queue_free()
 	if city_lights_mesh_instance and is_instance_valid(city_lights_mesh_instance):
 		city_lights_mesh_instance.queue_free()
+	if political_mesh_instance and is_instance_valid(political_mesh_instance):
+		political_mesh_instance.queue_free()
 
 	mesh_instance = MeshInstance3D.new()
 	mesh_instance.name = "HexWireframe"
@@ -84,6 +127,10 @@ func load_and_draw() -> void:
 	city_lights_mesh_instance = MeshInstance3D.new()
 	city_lights_mesh_instance.name = "CityLights"
 	add_child(city_lights_mesh_instance)
+
+	political_mesh_instance = MeshInstance3D.new()
+	political_mesh_instance.name = "PoliticalMap"
+	add_child(political_mesh_instance)
 
 	hex_centers.clear()
 	hex_types.clear()
@@ -117,6 +164,9 @@ func load_and_draw() -> void:
 
 	var st_city = SurfaceTool.new()
 	st_city.begin(Mesh.PRIMITIVE_POINTS)
+
+	var st_pol = SurfaceTool.new()
+	st_pol.begin(Mesh.PRIMITIVE_TRIANGLES)
 
 	var city_count := 0
 
@@ -153,11 +203,15 @@ func load_and_draw() -> void:
 
 		_add_hex(st, center, color)
 
+		# Political fill (owner color) – only land
+		if typ == "land":
+			_add_hex_filled(st_pol, center, get_nation_color(owner))
+
 		# Occupation overlay (controller != owner) → dashed in controller color
 		if typ == "land" and controller != "" and controller != owner:
 			_add_hex_dashed(st_occ, center, get_nation_color(controller))
 
-		# City lights – many small white glowing points
+		# City lights
 		if is_city and typ == "land":
 			_add_city_lights(st_city, center)
 			city_count += 1
@@ -165,44 +219,82 @@ func load_and_draw() -> void:
 		if i > 0 and i % 50000 == 0:
 			print("  ... ", i)
 
+	# --- Hex wireframe material ---
 	var mesh = st.commit()
-	var mat = StandardMaterial3D.new()
-	mat.vertex_color_use_as_albedo = true
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat_hex = StandardMaterial3D.new()
+	mat_hex.vertex_color_use_as_albedo = true
+	mat_hex.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat_hex.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat_hex.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat_hex.albedo_color = Color(1, 1, 1, 0.0)
 	mesh_instance.mesh = mesh
-	mesh_instance.material_override = mat
+	mesh_instance.material_override = mat_hex
 
+	# --- Occupation material ---
 	var mesh_occ = st_occ.commit()
-	var mat_occ = StandardMaterial3D.new()
+	mat_occ = StandardMaterial3D.new()
 	mat_occ.vertex_color_use_as_albedo = true
 	mat_occ.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat_occ.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat_occ.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat_occ.albedo_color = Color(1, 1, 1, 0.0)
 	occupation_mesh_instance.mesh = mesh_occ
 	occupation_mesh_instance.material_override = mat_occ
 
+	# --- City lights material ---
 	var mesh_city = st_city.commit()
-	var mat_city = StandardMaterial3D.new()
+	mat_city = StandardMaterial3D.new()
 	mat_city.vertex_color_use_as_albedo = true
 	mat_city.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat_city.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat_city.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat_city.use_point_size = true
 	mat_city.point_size = 3.5
 	mat_city.emission_enabled = true
 	mat_city.emission = Color(1.0, 0.97, 0.85)
-	mat_city.emission_energy_multiplier = 3.5
-	mat_city.albedo_color = Color(1.0, 0.98, 0.9)
+	mat_city.emission_energy_multiplier = 0.0
+	mat_city.albedo_color = Color(1, 1, 1, 0.0)
 	city_lights_mesh_instance.mesh = mesh_city
 	city_lights_mesh_instance.material_override = mat_city
 
+	# --- Political map material ---
+	var mesh_pol = st_pol.commit()
+	mat_political = StandardMaterial3D.new()
+	mat_political.vertex_color_use_as_albedo = true
+	mat_political.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat_political.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat_political.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat_political.albedo_color = Color(1, 1, 1, 1.0)
+	political_mesh_instance.mesh = mesh_pol
+	political_mesh_instance.material_override = mat_political
+
 	_center_camera(mesh)
+	_update_zoom_fade()
 	print("✅ HexMap fertig – ", hex_centers.size(), " Hexes, ", city_count, " Städte")
+
+func _add_hex_filled(st: SurfaceTool, center: Vector3, color: Color) -> void:
+	var pts: Array[Vector3] = []
+	var r = hex_size * scale_factor * edge_inset
+	var y = -0.05
+	for i in 6:
+		var angle_deg = 60.0 * i
+		if not flat_top:
+			angle_deg -= 30.0
+		var angle = deg_to_rad(angle_deg)
+		pts.append(Vector3(center.x + cos(angle) * r, y, center.z + sin(angle) * r))
+	var c = Vector3(center.x, y, center.z)
+	for i in 6:
+		st.set_color(color)
+		st.add_vertex(c)
+		st.set_color(color)
+		st.add_vertex(pts[i])
+		st.set_color(color)
+		st.add_vertex(pts[(i + 1) % 6])
 
 func _add_city_lights(st: SurfaceTool, center: Vector3) -> void:
 	var r = hex_size * scale_factor * edge_inset * 0.82
 	var num_lights = randi_range(18, 38)
 	for _i in num_lights:
-		# Uniform-ish distribution inside hex (approx circle)
 		var angle = randf() * TAU
 		var dist = r * sqrt(randf())
 		var px = center.x + cos(angle) * dist
@@ -224,12 +316,8 @@ func rebuild_occupation_overlay() -> void:
 		if controller != "" and controller != owner:
 			_add_hex_dashed(st_occ, hex_centers[i], get_nation_color(controller))
 	var mesh_occ = st_occ.commit()
-	var mat_occ = StandardMaterial3D.new()
-	mat_occ.vertex_color_use_as_albedo = true
-	mat_occ.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat_occ.cull_mode = BaseMaterial3D.CULL_DISABLED
 	occupation_mesh_instance.mesh = mesh_occ
-	occupation_mesh_instance.material_override = mat_occ
+	# keep existing material (alpha controlled by zoom)
 
 func set_controller(index: int, nation_id: String) -> void:
 	if index < 0 or index >= hex_controllers.size():
