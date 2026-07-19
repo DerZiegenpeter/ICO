@@ -45,30 +45,30 @@
     "nation": "POL",
     "lon": 19.0,
     "lat": 52.2,
-    "name": "1st Polish Infantry"
+    "name": "1st Polish Army"
   },
   {
     "id": 7,
-    "type": "air",
+    "type": "land",
     "nation": "POL",
     "lon": 18.5,
     "lat": 51.8,
-    "name": "Polish Air Wing"
+    "name": "2nd Polish Corps"
   },
   {
     "id": 8,
+    "type": "air",
+    "nation": "POL",
+    "lon": 20.0,
+    "lat": 52.0,
+    "name": "Polish Air Wing"
+  },
+  {
+    "id": 9,
     "type": "naval",
     "nation": "POL",
     "lon": 18.6,
     "lat": 54.5,
     "name": "Baltic Squadron"
-  },
-  {
-    "id": 9,
-    "type": "land",
-    "nation": "POL",
-    "lon": 17.0,
-    "lat": 51.1,
-    "name": "2nd Polish Brigade"
   }
 ]

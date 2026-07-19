@@ -8,7 +8,7 @@ enum Type { LAND, AIR, NAVAL, BALLISTIC }
 @export var size: float = 8.5
 @export var color: Color = Color(1.0, 0.9, 0.2)
 @export var unit_name: String = ""
-@export var nation_id: String = ""
+@export var nation: String = ""
 
 var target_pos: Vector3
 var selected := false
@@ -19,7 +19,7 @@ var path_index: int = 0
 var moving := false
 
 ## Called when unit arrives at a hex (path finished or teleported)
-signal arrived(unit: MilEntity)
+signal arrived_at_hex(unit: MilEntity)
 
 func _ready() -> void:
 	target_pos = position
@@ -31,33 +31,33 @@ func _process(delta: float) -> void:
 		return
 
 	var waypoint = path[path_index]
-	var goal = Vector3(waypoint.x, _height(), waypoint.z)
-	position = position.lerp(goal, 1.0 - exp(-move_speed * delta))
+	var dest = Vector3(waypoint.x, _height_for_type(), waypoint.z)
+	position = position.lerp(dest, 1.0 - exp(-move_speed * delta))
 
-	if position.distance_to(goal) < 0.8:
+	if position.distance_to(dest) < 0.8:
 		path_index += 1
 		if path_index >= path.size():
 			moving = false
-			position = goal
-			target_pos = goal
+			position = dest
+			target_pos = dest
 			path.clear()
-			arrived.emit(self)
+			arrived_at_hex.emit(self)
 		else:
 			var next = path[path_index]
-			target_pos = Vector3(next.x, _height(), next.z)
+			target_pos = Vector3(next.x, _height_for_type(), next.z)
 
-func _height() -> float:
+func _height_for_type() -> float:
 	match entity_type:
 		Type.LAND, Type.NAVAL:
 			return 0.2
 		Type.AIR:
-			return size * 0.9		# clearly above land/naval
+			return size * 0.9		# floats above ground units
 		Type.BALLISTIC:
 			return size * 1.7		# above air
 	return 0.2
 
 func set_hex_position(pos: Vector3) -> void:
-	var p = Vector3(pos.x, _height(), pos.z)
+	var p = Vector3(pos.x, _height_for_type(), pos.z)
 	target_pos = p
 	position = p
 	path.clear()
@@ -68,13 +68,13 @@ func follow_path(new_path: Array[Vector3]) -> void:
 		return
 	if new_path.size() == 1:
 		set_hex_position(new_path[0])
-		arrived.emit(self)
+		arrived_at_hex.emit(self)
 		return
 	path = new_path
 	path_index = 1
 	moving = true
 	var next = path[path_index]
-	target_pos = Vector3(next.x, _height(), next.z)
+	target_pos = Vector3(next.x, _height_for_type(), next.z)
 
 func get_type_string() -> String:
 	match entity_type:
@@ -126,7 +126,7 @@ func _build_mesh() -> void:
 
 func _build_rectangle(st: SurfaceTool) -> void:
 	var s = size * 0.45
-	var y = 0.0
+	var y = 0.15
 	var pts = [
 		Vector3(-s, y, -s), Vector3(s, y, -s),
 		Vector3(s, y, s), Vector3(-s, y, s)
