@@ -12,7 +12,7 @@ var units: Array[MilEntity] = []
 ## nation_id -> set of enemy nation_ids
 var at_war: Dictionary = {}
 
-## Active combats: key "idA|idB" (sorted) -> { a, b, marker }
+## Active combats: key "idA|idB" -> { a, b, marker }
 var combats: Dictionary = {}
 
 func _ready() -> void:
@@ -51,19 +51,26 @@ func are_enemies(nation_a: String, nation_b: String) -> bool:
 		return false
 	return at_war.has(nation_a) and at_war[nation_a].has(nation_b)
 
+## Combat rules:
+## - Land vs Land
+## - Naval vs Naval
+## - Air vs Land, Naval, Air
+## - Ballistic vs All
 func can_fight(a: MilEntity, b: MilEntity) -> bool:
 	if not are_enemies(a.nation, b.nation):
 		return false
 	var ta = a.get_type_string()
 	var tb = b.get_type_string()
-	# ballistic vs everything
+
 	if ta == "ballistic" or tb == "ballistic":
 		return true
-	# same domain
-	if ta == tb:
+	if ta == "air":
+		return tb in ["land", "naval", "air"]
+	if tb == "air":
+		return ta in ["land", "naval", "air"]
+	if ta == "land" and tb == "land":
 		return true
-	# land <-> naval
-	if (ta == "land" and tb == "naval") or (ta == "naval" and tb == "land"):
+	if ta == "naval" and tb == "naval":
 		return true
 	return false
 
@@ -155,20 +162,42 @@ func _try_select(world_pos: Vector3) -> void:
 	else:
 		print("Nichts ausgewählt")
 
+func _enemy_on_hex(ground_pos: Vector3, attacker: MilEntity) -> MilEntity:
+	for u in units:
+		if u == attacker:
+			continue
+		if not _same_hex(ground_pos, u.get_ground_pos()):
+			continue
+		if can_fight(attacker, u):
+			return u
+	return null
+
 func _try_move(world_pos: Vector3) -> void:
 	if selected == null or hex_map == null:
 		return
 
 	var unit_type = selected.get_type_string()
-	print("Suche Pfad für ", unit_type, "...")
+	var goal_center = hex_map.get_closest_hex_center(world_pos)
+	var enemy = _enemy_on_hex(goal_center, selected)
 
-	var path: Array[Vector3] = hex_map.find_path(selected.get_ground_pos(), world_pos, unit_type)
+	print("Suche Pfad für ", unit_type, "...")
+	var path: Array[Vector3] = hex_map.find_path(selected.get_ground_pos(), goal_center, unit_type)
 	if path.is_empty():
 		print("Kein gültiger Pfad")
 		return
 
+	# If attacking an enemy: stop on the hex BEFORE the enemy hex
+	if enemy != null:
+		if path.size() >= 2:
+			path = path.slice(0, path.size() - 1)
+			print("Angriff auf ", enemy.unit_name, " – stoppe vor dem Feind-Hex")
+		elif path.size() == 1:
+			# Already on / next to target hex – start combat immediately, no move
+			_end_combats_involving(selected)
+			_start_combat(selected, enemy)
+			return
+
 	print("Pfad mit ", path.size(), " Hexes gefunden")
-	# Leaving current hex ends any combat involving this unit
 	_end_combats_involving(selected)
 	selected.follow_path(path)
 
@@ -186,15 +215,19 @@ func _combat_key(a: MilEntity, b: MilEntity) -> String:
 	return idb + "|" + ida
 
 func _check_combat_for(unit: MilEntity) -> void:
+	# Combat if adjacent (or same hex) to a fightable enemy
 	var ground = unit.get_ground_pos()
 	for other in units:
 		if other == unit:
 			continue
-		if not _same_hex(ground, other.get_ground_pos()):
-			continue
 		if not can_fight(unit, other):
 			continue
-		_start_combat(unit, other)
+		var dist = ground.distance_to(other.get_ground_pos())
+		# same hex OR neighboring hex (center distance ~18)
+		if dist < 1.5 or dist < (hex_map.neighbor_dist if hex_map.neighbor_dist > 0.0 else 22.0) * 1.05:
+			# Prefer starting combat when adjacent after an attack move
+			if dist < 1.5 or dist > 5.0:
+				_start_combat(unit, other)
 
 func _start_combat(a: MilEntity, b: MilEntity) -> void:
 	var key = _combat_key(a, b)
