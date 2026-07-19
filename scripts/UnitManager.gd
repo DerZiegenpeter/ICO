@@ -19,6 +19,10 @@ var nation_colors: Dictionary = {}
 ## Active combats: key "idA|idB" -> { a, b, marker }
 var combats: Dictionary = {}
 
+## Path visualization
+var path_mesh_instance: MeshInstance3D = null
+var path_unit: MilEntity = null
+
 func _ready() -> void:
 	hex_map = get_node_or_null(hex_map_path)
 	await get_tree().process_frame
@@ -204,6 +208,7 @@ func _try_move(world_pos: Vector3) -> void:
 	# Explicit attack order on enemy hex
 	if enemy != null and can_fight(selected, enemy):
 		_end_combats_involving(selected)
+		_clear_path_visual()
 
 		if unit_type == "air" or unit_type == "ballistic":
 			print("Suche Pfad für ", unit_type, " (Angriff über Ziel)...")
@@ -212,6 +217,8 @@ func _try_move(world_pos: Vector3) -> void:
 				print("Kein gültiger Pfad zum Ziel")
 				return
 			print("Pfad mit ", path.size(), " Hexes gefunden – fliege/rakete zum Ziel")
+			_show_path(path, get_nation_color(selected.nation))
+			path_unit = selected
 			selected.follow_path(path)
 		else:
 			# Land & Naval: stay put, start combat immediately
@@ -219,7 +226,7 @@ func _try_move(world_pos: Vector3) -> void:
 			print("⚔ Angriffsbefehl: ", selected.unit_name, " vs ", enemy.unit_name, " (bleiben stehen)")
 		return
 
-	# Normal movement to empty / non-hostile hex
+	# Normal movement
 	print("Suche Pfad für ", unit_type, "...")
 	var path: Array[Vector3] = hex_map.find_path(selected.get_ground_pos(), goal_center, unit_type)
 	if path.is_empty():
@@ -228,6 +235,8 @@ func _try_move(world_pos: Vector3) -> void:
 
 	print("Pfad mit ", path.size(), " Hexes gefunden")
 	_end_combats_involving(selected)
+	_show_path(path, get_nation_color(selected.nation))
+	path_unit = selected
 	selected.follow_path(path)
 
 func _on_unit_arrived(unit: MilEntity) -> void:
@@ -242,22 +251,63 @@ func _on_unit_arrived(unit: MilEntity) -> void:
 			_start_combat(unit, other)
 			break
 
-	# 2) Territory capture (only Land units)
-	if unit.get_type_string() != "land":
-		return
-	if hex_map == null:
+	# 2) Territory capture (only Land units) – now for every hex along the path
+	if unit.get_type_string() == "land" and hex_map != null:
+		var idx = hex_map.get_closest_hex_index(ground)
+		if idx >= 0:
+			var owner = hex_map.get_hex_owner(idx)
+			if owner != "" and owner != unit.nation and are_enemies(unit.nation, owner):
+				hex_map.set_controller(idx, unit.nation)
+				print("🏴 ", unit.unit_name, " erobert Hex (Owner: ", owner, " → Controller: ", unit.nation, ")")
+
+	# Clear path visual when unit finished moving
+	if path_unit == unit and not unit.moving:
+		_clear_path_visual()
+		path_unit = null
+
+func _show_path(points: Array[Vector3], color: Color) -> void:
+	_clear_path_visual()
+	if points.size() < 2:
 		return
 
-	var idx = hex_map.get_closest_hex_index(ground)
-	if idx < 0:
-		return
-	var owner = hex_map.get_hex_owner(idx)
-	if owner == "" or owner == unit.nation:
-		return
-	# Only capture if at war with the owner
-	if are_enemies(unit.nation, owner):
-		hex_map.set_controller(idx, unit.nation)
-		print("🏴 ", unit.unit_name, " erobert Hex (Owner: ", owner, " → Controller: ", unit.nation, ")")
+	# Build a smooth Curve3D through the hex centers
+	var curve := Curve3D.new()
+	for p in points:
+		curve.add_point(Vector3(p.x, 0.45, p.z))
+
+	# Tessellate for nice rounded look
+	var baked: PackedVector3Array = curve.tessellate(6, 0.15)
+	if baked.size() < 2:
+		baked = PackedVector3Array()
+		for p in points:
+			baked.append(Vector3(p.x, 0.45, p.z))
+
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_LINE_STRIP)
+	for p in baked:
+		st.set_color(color)
+		st.add_vertex(p)
+
+	var mesh := st.commit()
+	var mat := StandardMaterial3D.new()
+	mat.vertex_color_use_as_albedo = true
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat.albedo_color = color
+	mat.emission_enabled = true
+	mat.emission = color
+	mat.emission_energy_multiplier = 1.8
+
+	path_mesh_instance = MeshInstance3D.new()
+	path_mesh_instance.name = "PathVisual"
+	path_mesh_instance.mesh = mesh
+	path_mesh_instance.material_override = mat
+	add_child(path_mesh_instance)
+
+func _clear_path_visual() -> void:
+	if path_mesh_instance and is_instance_valid(path_mesh_instance):
+		path_mesh_instance.queue_free()
+	path_mesh_instance = null
 
 func _same_hex(a: Vector3, b: Vector3) -> bool:
 	return a.distance_to(b) < 1.5

@@ -18,7 +18,7 @@ var path: Array[Vector3] = []
 var path_index: int = 0
 var moving := false
 
-## Called when unit arrives at a hex (path finished or teleported)
+## Emitted every time the unit arrives at a hex (intermediate + final)
 signal arrived_at_hex(unit: MilEntity)
 
 func _ready() -> void:
@@ -35,13 +35,15 @@ func _process(delta: float) -> void:
 	position = position.lerp(dest, 1.0 - exp(-move_speed * delta))
 
 	if position.distance_to(dest) < 0.8:
+		# Snap + notify arrival at this hex (also for intermediate hexes)
+		position = dest
+		target_pos = dest
+		arrived_at_hex.emit(self)
+
 		path_index += 1
 		if path_index >= path.size():
 			moving = false
-			position = dest
-			target_pos = dest
 			path.clear()
-			arrived_at_hex.emit(self)
 		else:
 			var next = path[path_index]
 			target_pos = Vector3(next.x, _height_for_type(), next.z)
@@ -51,9 +53,9 @@ func _height_for_type() -> float:
 		Type.LAND, Type.NAVAL:
 			return 0.2
 		Type.AIR:
-			return size * 0.9		# floats above ground units
+			return size * 0.9
 		Type.BALLISTIC:
-			return size * 1.7		# above air
+			return size * 1.7
 	return 0.2
 
 func set_hex_position(pos: Vector3) -> void:
