@@ -3,6 +3,7 @@ extends Node3D
 @export var hex_map_path: NodePath = NodePath("../HexMap")
 @export var oob_path: String = "res://data/oob.json"
 @export var diplomacy_path: String = "res://data/diplomacy.json"
+@export var nations_path: String = "res://data/nations.json"
 @export var combat_marker_size: float = 4.0
 
 var hex_map: Node3D
@@ -12,6 +13,9 @@ var units: Array[MilEntity] = []
 ## nation_id -> set of enemy nation_ids
 var at_war: Dictionary = {}
 
+## nation_id -> Color
+var nation_colors: Dictionary = {}
+
 ## Active combats: key "idA|idB" -> { a, b, marker }
 var combats: Dictionary = {}
 
@@ -19,8 +23,29 @@ func _ready() -> void:
 	hex_map = get_node_or_null(hex_map_path)
 	await get_tree().process_frame
 	await get_tree().process_frame
+	_load_nations()
 	_load_diplomacy()
 	_load_oob()
+
+func _load_nations() -> void:
+	nation_colors.clear()
+	if not FileAccess.file_exists(nations_path):
+		nation_colors["GER"] = Color("#555555")
+		nation_colors["POL"] = Color("#c41e3a")
+		return
+	var file = FileAccess.open(nations_path, FileAccess.READ)
+	var json = JSON.new()
+	if json.parse(file.get_as_text()) != OK:
+		return
+	file.close()
+	for n in json.data:
+		var id = str(n.get("id", ""))
+		var col = str(n.get("color", "#888888"))
+		if id != "":
+			nation_colors[id] = Color(col)
+
+func get_nation_color(nation_id: String) -> Color:
+	return nation_colors.get(nation_id, Color(0.75, 0.75, 0.2))
 
 func _load_diplomacy() -> void:
 	at_war.clear()
@@ -108,21 +133,18 @@ func _load_oob() -> void:
 		var world_pos = hex_map.lonlat_to_world(lon, lat)
 		world_pos = hex_map.get_closest_hex_center(world_pos)
 
-		var unit = spawn_unit(typ, world_pos)
-		unit.unit_name = unit_name
+		var unit = MilEntity.new()
+		unit.entity_type = typ
 		unit.nation = nation
+		unit.unit_name = unit_name
 		unit.name = unit_name
+		unit.color = get_nation_color(nation)
+		add_child(unit)
+		unit.set_hex_position(world_pos)
 		unit.arrived_at_hex.connect(_on_unit_arrived)
+		units.append(unit)
 
 	print("OOB geladen – Einheiten: ", units.size())
-
-func spawn_unit(type: MilEntity.Type, hex_pos: Vector3) -> MilEntity:
-	var unit = MilEntity.new()
-	unit.entity_type = type
-	add_child(unit)
-	unit.set_hex_position(hex_pos)
-	units.append(unit)
-	return unit
 
 func _input(event: InputEvent) -> void:
 	if not (event is InputEventMouseButton and event.pressed):
@@ -184,7 +206,6 @@ func _try_move(world_pos: Vector3) -> void:
 		_end_combats_involving(selected)
 
 		if unit_type == "air" or unit_type == "ballistic":
-			# Air & Ballistic: move over the target, combat starts on arrival
 			print("Suche Pfad für ", unit_type, " (Angriff über Ziel)...")
 			var path: Array[Vector3] = hex_map.find_path(selected.get_ground_pos(), goal_center, unit_type)
 			if path.is_empty():
@@ -210,8 +231,7 @@ func _try_move(world_pos: Vector3) -> void:
 	selected.follow_path(path)
 
 func _on_unit_arrived(unit: MilEntity) -> void:
-	# Only start combat when unit lands on the same hex as a fightable enemy
-	# (used by Air/Ballistic after they fly over the target)
+	# 1) Combat if landing on same hex as fightable enemy (Air/Ballistic)
 	var ground = unit.get_ground_pos()
 	for other in units:
 		if other == unit:
@@ -220,7 +240,24 @@ func _on_unit_arrived(unit: MilEntity) -> void:
 			continue
 		if _same_hex(ground, other.get_ground_pos()):
 			_start_combat(unit, other)
-			return
+			break
+
+	# 2) Territory capture (only Land units)
+	if unit.get_type_string() != "land":
+		return
+	if hex_map == null:
+		return
+
+	var idx = hex_map.get_closest_hex_index(ground)
+	if idx < 0:
+		return
+	var owner = hex_map.get_owner(idx)
+	if owner == "" or owner == unit.nation:
+		return
+	# Only capture if at war with the owner
+	if are_enemies(unit.nation, owner):
+		hex_map.set_controller(idx, unit.nation)
+		print("🏴 ", unit.unit_name, " erobert Hex (Owner: ", owner, " → Controller: ", unit.nation, ")")
 
 func _same_hex(a: Vector3, b: Vector3) -> bool:
 	return a.distance_to(b) < 1.5

@@ -1,10 +1,12 @@
 [
   {
     "id": "GER",
-    "name": "Germany"
+    "name": "Germany",
+    "color": "#555555"
   },
   {
     "id": "POL",
-    "name": "Poland"
+    "name": "Poland",
+    "color": "#c41e3a"
   }
 ]
