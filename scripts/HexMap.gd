@@ -16,6 +16,7 @@ extends Node3D
 
 var mesh_instance: MeshInstance3D
 var occupation_mesh_instance: MeshInstance3D
+var city_lights_mesh_instance: MeshInstance3D
 var hex_centers: Array[Vector3] = []
 var hex_types: Array[String] = []
 var hex_owners: Array[String] = []
@@ -69,6 +70,8 @@ func load_and_draw() -> void:
 		mesh_instance.queue_free()
 	if occupation_mesh_instance and is_instance_valid(occupation_mesh_instance):
 		occupation_mesh_instance.queue_free()
+	if city_lights_mesh_instance and is_instance_valid(city_lights_mesh_instance):
+		city_lights_mesh_instance.queue_free()
 
 	mesh_instance = MeshInstance3D.new()
 	mesh_instance.name = "HexWireframe"
@@ -77,6 +80,10 @@ func load_and_draw() -> void:
 	occupation_mesh_instance = MeshInstance3D.new()
 	occupation_mesh_instance.name = "OccupationOverlay"
 	add_child(occupation_mesh_instance)
+
+	city_lights_mesh_instance = MeshInstance3D.new()
+	city_lights_mesh_instance.name = "CityLights"
+	add_child(city_lights_mesh_instance)
 
 	hex_centers.clear()
 	hex_types.clear()
@@ -108,11 +115,17 @@ func load_and_draw() -> void:
 	var st_occ = SurfaceTool.new()
 	st_occ.begin(Mesh.PRIMITIVE_LINES)
 
+	var st_city = SurfaceTool.new()
+	st_city.begin(Mesh.PRIMITIVE_POINTS)
+
+	var city_count := 0
+
 	for i in data.size():
 		var h = data[i]
 		var lon = float(h.get("lon", 0.0))
 		var lat = float(h.get("lat", 0.0))
 		var typ = str(h.get("type", "ocean")).to_lower()
+		var is_city: bool = bool(h.get("city", false))
 
 		var owner := ""
 		var controller := ""
@@ -144,6 +157,11 @@ func load_and_draw() -> void:
 		if typ == "land" and controller != "" and controller != owner:
 			_add_hex_dashed(st_occ, center, get_nation_color(controller))
 
+		# City lights – many small white glowing points
+		if is_city and typ == "land":
+			_add_city_lights(st_city, center)
+			city_count += 1
+
 		if i > 0 and i % 50000 == 0:
 			print("  ... ", i)
 
@@ -163,8 +181,35 @@ func load_and_draw() -> void:
 	occupation_mesh_instance.mesh = mesh_occ
 	occupation_mesh_instance.material_override = mat_occ
 
+	var mesh_city = st_city.commit()
+	var mat_city = StandardMaterial3D.new()
+	mat_city.vertex_color_use_as_albedo = true
+	mat_city.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat_city.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat_city.use_point_size = true
+	mat_city.point_size = 3.5
+	mat_city.emission_enabled = true
+	mat_city.emission = Color(1.0, 0.97, 0.85)
+	mat_city.emission_energy_multiplier = 3.5
+	mat_city.albedo_color = Color(1.0, 0.98, 0.9)
+	city_lights_mesh_instance.mesh = mesh_city
+	city_lights_mesh_instance.material_override = mat_city
+
 	_center_camera(mesh)
-	print("✅ HexMap fertig – ", hex_centers.size(), " Hexes")
+	print("✅ HexMap fertig – ", hex_centers.size(), " Hexes, ", city_count, " Städte")
+
+func _add_city_lights(st: SurfaceTool, center: Vector3) -> void:
+	var r = hex_size * scale_factor * edge_inset * 0.82
+	var num_lights = randi_range(18, 38)
+	for _i in num_lights:
+		# Uniform-ish distribution inside hex (approx circle)
+		var angle = randf() * TAU
+		var dist = r * sqrt(randf())
+		var px = center.x + cos(angle) * dist
+		var pz = center.z + sin(angle) * dist
+		var py = 0.12 + randf() * 0.08
+		st.set_color(Color(1.0, 0.97, 0.88))
+		st.add_vertex(Vector3(px, py, pz))
 
 func rebuild_occupation_overlay() -> void:
 	if occupation_mesh_instance == null or not is_instance_valid(occupation_mesh_instance):

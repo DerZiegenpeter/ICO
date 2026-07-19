@@ -251,14 +251,15 @@ func _on_unit_arrived(unit: MilEntity) -> void:
 			_start_combat(unit, other)
 			break
 
-	# 2) Territory capture (only Land units) – now for every hex along the path
+	# 2) Territory capture / re-capture (only Land units)
+	#    Now based on current *controller*, so liberation of own territory also works
 	if unit.get_type_string() == "land" and hex_map != null:
 		var idx = hex_map.get_closest_hex_index(ground)
 		if idx >= 0:
-			var owner = hex_map.get_hex_owner(idx)
-			if owner != "" and owner != unit.nation and are_enemies(unit.nation, owner):
+			var controller = hex_map.get_hex_controller(idx)
+			if controller != "" and controller != unit.nation and are_enemies(unit.nation, controller):
 				hex_map.set_controller(idx, unit.nation)
-				print("🏴 ", unit.unit_name, " erobert Hex (Owner: ", owner, " → Controller: ", unit.nation, ")")
+				print("🏴 ", unit.unit_name, " übernimmt Kontrolle (war: ", controller, " → jetzt: ", unit.nation, ")")
 
 	# Clear path visual when unit finished moving
 	if path_unit == unit and not unit.moving:
