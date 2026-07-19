@@ -1,6 +1,5 @@
 [gd_scene format=3 uid="uid://vipatwbo5xx1"]
 
-[ext_resource type="Script" uid="uid://cf87l2rurrarr" path="res://scripts/HexGenerator.gd" id="1_0bbpv"]
 [ext_resource type="Script" uid="uid://ch7htlaiwk7iq" path="res://scripts/LandWaterViewer.gd" id="2_rarhs"]
 [ext_resource type="Script" uid="uid://cosstlq716txu" path="res://scripts/CameraController.gd" id="3_vcsgt"]
 
@@ -8,7 +7,6 @@
 background_mode = 2
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_glv2v"]
-albedo_color = Color(0, 0, 0, 1)
 roughness = 0.0
 
 [sub_resource type="SphereMesh" id="SphereMesh_rxg2q"]
@@ -19,8 +17,6 @@ height = 100.0
 [node name="Main" type="Node3D" unique_id=538785834]
 
 [node name="HexGenerator" type="Node3D" parent="." unique_id=979735394]
-script = ExtResource("1_0bbpv")
-relaxation_iterations = 10
 
 [node name="LandWaterViewer" type="Node3D" parent="." unique_id=1702756987]
 script = ExtResource("2_rarhs")
