@@ -1,9 +1,9 @@
 extends Camera3D
 
-@export var orbit_radius: float = 80.0
-@export var min_radius: float = 10.0
-@export var max_radius: float = 250.0
-@export var zoom_step: float = 1.2
+@export var orbit_radius: float = 90.0
+@export var min_radius: float = 15.0
+@export var max_radius: float = 300.0
+@export var zoom_step: float = 1.5
 @export var zoom_lerp_speed: float = 6.0
 @export var rotation_sensitivity: float = 0.0022
 @export var rotation_inertia: float = 0.93
@@ -25,7 +25,6 @@ func _input(event: InputEvent) -> void:
 			_target_radius = max(min_radius, _target_radius - zoom_step)
 		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 			_target_radius = min(max_radius, _target_radius + zoom_step)
-
 		if event.button_index == MOUSE_BUTTON_MIDDLE:
 			_is_dragging = event.pressed
 
@@ -50,6 +49,5 @@ func _update_camera_position() -> void:
 	var x = orbit_radius * cos(_pitch) * sin(_yaw)
 	var y = orbit_radius * sin(_pitch)
 	var z = orbit_radius * cos(_pitch) * cos(_yaw)
-	
 	position = Vector3(x, y, z)
 	look_at(Vector3.ZERO, Vector3.UP)

@@ -1,7 +1,10 @@
 [gd_scene format=3 uid="uid://vipatwbo5xx1"]
 
+[ext_resource type="Script" uid="uid://cosstlq716txu" path="res://scripts/CameraController.gd" id="1_glv2v"]
+[ext_resource type="Script" uid="uid://cf87l2rurrarr" path="res://HexGenerator.gd" id="1_r0du0"]
+[ext_resource type="Script" uid="uid://ch7htlaiwk7iq" path="res://LandWaterViewer.gd" id="2_cm0pq"]
+
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_glv2v"]
-albedo_color = Color(0, 0, 0, 1)
 roughness = 0.0
 
 [sub_resource type="SphereMesh" id="SphereMesh_rxg2q"]
@@ -9,15 +12,19 @@ material = SubResource("StandardMaterial3D_glv2v")
 radius = 50.0
 height = 100.0
 
-[sub_resource type="Environment" id="Environment_uu6xs"]
-background_mode = 2
-
 [node name="Main" type="Node3D" unique_id=538785834]
 
-[node name="MainCamera" type="Camera3D" parent="." unique_id=352099116]
+[node name="HexGenerator" type="Node3D" parent="." unique_id=979735394]
+script = ExtResource("1_r0du0")
+relaxation_iterations = 10
+
+[node name="LandWaterViewer" type="Node3D" parent="." unique_id=1702756987]
+script = ExtResource("2_cm0pq")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=117235496]
 
 [node name="InnerBlackSphere" type="MeshInstance3D" parent="." unique_id=250653857]
 mesh = SubResource("SphereMesh_rxg2q")
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=117235496]
-environment = SubResource("Environment_uu6xs")
+[node name="Camera3D" type="Camera3D" parent="." unique_id=352099116]
+script = ExtResource("1_glv2v")
