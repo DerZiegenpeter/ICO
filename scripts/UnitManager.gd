@@ -165,7 +165,7 @@ func _screen_to_ground(screen_pos: Vector2) -> Vector3:
 		return Vector3.ZERO
 	return from + dir * (-from.y / dir.y)
 
-func _try_select(world_pos: Vector3) -> Vector3:
+func _try_select(world_pos: Vector3) -> void:
 	var closest: MilEntity = null
 	var best_dist := 12.0
 	for u in units:
