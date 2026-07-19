@@ -17,6 +17,10 @@ height = 40.0
 
 [node name="World" type="Node3D" unique_id=1116617914]
 script = ExtResource("1_rvslj")
+relaxation_iterations = null
+line_color = Color(0.8828955, 0.7975371, 0.9037928, 1)
+export_path = null
+auto_export_on_generate = null
 
 [node name="MainCamera" type="Camera3D" parent="." unique_id=2078243339]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 35)
