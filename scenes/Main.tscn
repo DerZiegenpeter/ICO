@@ -1,12 +1,23 @@
 [gd_scene format=3 uid="uid://vipatwbo5xx1"]
 
-[ext_resource type="Script" uid="uid://cosstlq716txu" path="res://scenes/CameraController.gd" id="1_rvslj"]
 [ext_resource type="Script" uid="uid://ni36xdkbpklb" path="res://scripts/HexMap.gd" id="2_0bbpv"]
+[ext_resource type="Script" uid="uid://b66tlyv56285n" path="res://scripts/UnitManager.gd" id="3_0bbpv"]
+[ext_resource type="Script" uid="uid://cosstlq716txu" path="res://scripts/CameraController.gd" id="3_vcsgt"]
+
+[sub_resource type="Environment" id="Environment_0bj4a"]
+background_mode = 2
 
 [node name="Main" type="Node3D" unique_id=1397147966]
 
 [node name="Camera3D" type="Camera3D" parent="." unique_id=1564211600]
-script = ExtResource("1_rvslj")
+transform = Transform3D(1, 0, 0, 0, 0.5, 0.86602557, 0, -0.86602557, 0.5, 0, 80, 0)
+script = ExtResource("3_vcsgt")
 
 [node name="HexMap" type="Node3D" parent="." unique_id=716895893]
 script = ExtResource("2_0bbpv")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=2072058528]
+environment = SubResource("Environment_0bj4a")
+
+[node name="MilEntities" type="Node3D" parent="." unique_id=1252360779]
+script = ExtResource("3_0bbpv")

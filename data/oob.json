@@ -1,0 +1,51 @@
+[
+  {
+	"id": 1,
+	"type": "land",
+	"lon": 10.0,
+	"lat": 51.0,
+	"name": "1st Panzer Division"
+  },
+  {
+	"id": 2,
+	"type": "land",
+	"lon": 11.5,
+	"lat": 50.5,
+	"name": "2nd Infantry Division"
+  },
+  {
+	"id": 3,
+	"type": "air",
+	"lon": 9.5,
+	"lat": 52.0,
+	"name": "Luftflotte 1"
+  },
+  {
+	"id": 4,
+	"type": "naval",
+	"lon": 8.0,
+	"lat": 54.0,
+	"name": "Nordsee Geschwader"
+  },
+  {
+	"id": 5,
+	"type": "ballistic",
+	"lon": 12.5,
+	"lat": 49.5,
+	"name": "Raketengruppe 1"
+  },
+  {
+	"id": 6,
+	"type": "land",
+	"lon": 14.0,
+	"lat": 52.5,
+	"name": "3rd Mechanized Brigade"
+  },
+  {
+	"id": 7,
+	"type": "air",
+	"lon": 13.0,
+	"lat": 50.0,
+	"name": "Jagdgeschwader 2"
+  }
+]
