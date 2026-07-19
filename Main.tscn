@@ -1,0 +1,23 @@
+[gd_scene format=3 uid="uid://vipatwbo5xx1"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_glv2v"]
+albedo_color = Color(0, 0, 0, 1)
+roughness = 0.0
+
+[sub_resource type="SphereMesh" id="SphereMesh_rxg2q"]
+material = SubResource("StandardMaterial3D_glv2v")
+radius = 50.0
+height = 100.0
+
+[sub_resource type="Environment" id="Environment_uu6xs"]
+background_mode = 2
+
+[node name="Main" type="Node3D" unique_id=538785834]
+
+[node name="MainCamera" type="Camera3D" parent="." unique_id=352099116]
+
+[node name="InnerBlackSphere" type="MeshInstance3D" parent="." unique_id=250653857]
+mesh = SubResource("SphereMesh_rxg2q")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=117235496]
+environment = SubResource("Environment_uu6xs")
