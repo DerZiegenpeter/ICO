@@ -197,12 +197,12 @@ func set_controller(index: int, nation_id: String) -> void:
 	rebuild_occupation_overlay()
 	print("Controller Hex ", index, " → ", nation_id)
 
-func get_owner(index: int) -> String:
+func get_hex_owner(index: int) -> String:
 	if index < 0 or index >= hex_owners.size():
 		return ""
 	return hex_owners[index]
 
-func get_controller(index: int) -> String:
+func get_hex_controller(index: int) -> String:
 	if index < 0 or index >= hex_controllers.size():
 		return ""
 	return hex_controllers[index]

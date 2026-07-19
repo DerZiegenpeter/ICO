@@ -165,7 +165,7 @@ func _screen_to_ground(screen_pos: Vector2) -> Vector3:
 		return Vector3.ZERO
 	return from + dir * (-from.y / dir.y)
 
-func _try_select(world_pos: Vector3) -> void:
+func _try_select(world_pos: Vector3) -> Vector3:
 	var closest: MilEntity = null
 	var best_dist := 12.0
 	for u in units:
@@ -251,7 +251,7 @@ func _on_unit_arrived(unit: MilEntity) -> void:
 	var idx = hex_map.get_closest_hex_index(ground)
 	if idx < 0:
 		return
-	var owner = hex_map.get_owner(idx)
+	var owner = hex_map.get_hex_owner(idx)
 	if owner == "" or owner == unit.nation:
 		return
 	# Only capture if at war with the owner
