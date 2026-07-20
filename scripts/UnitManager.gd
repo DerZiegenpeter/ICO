@@ -10,18 +10,16 @@ var hex_map: Node3D
 var selected: MilEntity = null
 var units: Array[MilEntity] = []
 
-## nation_id -> set of enemy nation_ids
 var at_war: Dictionary = {}
-
-## nation_id -> Color
 var nation_colors: Dictionary = {}
-
-## Active combats: key "idA|idB" -> { a, b, marker }
 var combats: Dictionary = {}
 
-## Path visualization (for currently selected unit's pending order)
+## Path visualization
 var path_mesh_instance: MeshInstance3D = null
 var path_unit: MilEntity = null
+
+## Pending combat markers (faint) – key same as combats
+var pending_combat_markers: Dictionary = {}
 
 ## ---- Time / Turn system ----
 var year: int = 1949
@@ -51,7 +49,6 @@ func _setup_ui() -> void:
 	canvas.name = "UI"
 	add_child(canvas)
 
-	# Date – top right
 	date_label = Label.new()
 	date_label.name = "DateLabel"
 	date_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -68,7 +65,6 @@ func _setup_ui() -> void:
 	date_label.offset_bottom = 50
 	canvas.add_child(date_label)
 
-	# Hint – below date
 	hint_label = Label.new()
 	hint_label.name = "HintLabel"
 	hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -99,12 +95,9 @@ func _advance_day() -> void:
 
 func _days_in_month(y: int, m: int) -> int:
 	match m:
-		1, 3, 5, 7, 8, 10, 12:
-			return 31
-		4, 6, 9, 11:
-			return 30
+		1, 3, 5, 7, 8, 10, 12: return 31
+		4, 6, 9, 11: return 30
 		2:
-			# leap year
 			if (y % 4 == 0 and y % 100 != 0) or (y % 400 == 0):
 				return 29
 			return 28
@@ -119,23 +112,38 @@ func end_turn() -> void:
 	_clear_path_visual()
 	path_unit = null
 
-	# Execute all pending orders simultaneously
+	# 1) Resolve pending combats (land attacks ordered this turn)
+	_resolve_pending_combats()
+
+	# 2) Execute movement segments (up to 4 hexes each) simultaneously
 	var moved := 0
 	for u in units:
 		if u.has_order():
-			u.execute_order()
+			u.execute_turn_movement()
 			moved += 1
-	print("Befehle ausgeführt: ", moved)
+	print("Bewegungsbefehle ausgeführt: ", moved)
 
-	# Advance calendar
+	# 3) Advance calendar
 	_advance_day()
 	print("Neuer Tag: ", day, ". ", MONTH_NAMES[month], " ", year)
 
-	# Refresh movement points for the new day
+	# 4) Reset points for the new day (multi-turn paths re-commit automatically)
 	for u in units:
-		u.reset_move_points()
+		u.reset_points()
 
 	resolving = false
+
+func _resolve_pending_combats() -> void:
+	for u in units:
+		if not u.has_combat_order():
+			continue
+		var target = u.pending_combat_target
+		# Remove faint marker
+		_clear_pending_combat_marker(u, target)
+		if is_instance_valid(target) and can_fight(u, target):
+			_start_combat(u, target)
+			print("⚔ Kampf beginnt: ", u.unit_name, " vs ", target.unit_name)
+		u.execute_combat_order()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
@@ -192,17 +200,11 @@ func are_enemies(nation_a: String, nation_b: String) -> bool:
 		return false
 	return at_war.has(nation_a) and at_war[nation_a].has(nation_b)
 
-## Combat rules:
-## - Land vs Land
-## - Naval vs Naval
-## - Air vs Land, Naval, Air
-## - Ballistic vs All
 func can_fight(a: MilEntity, b: MilEntity) -> bool:
 	if not are_enemies(a.nation, b.nation):
 		return false
 	var ta = a.get_type_string()
 	var tb = b.get_type_string()
-
 	if ta == "ballistic" or tb == "ballistic":
 		return true
 	if ta == "air":
@@ -234,12 +236,9 @@ func _load_oob() -> void:
 		var typ_str = str(entry.get("type", "land")).to_lower()
 		var typ = MilEntity.Type.LAND
 		match typ_str:
-			"air":
-				typ = MilEntity.Type.AIR
-			"naval":
-				typ = MilEntity.Type.NAVAL
-			"ballistic":
-				typ = MilEntity.Type.BALLISTIC
+			"air": typ = MilEntity.Type.AIR
+			"naval": typ = MilEntity.Type.NAVAL
+			"ballistic": typ = MilEntity.Type.BALLISTIC
 
 		var lon = float(entry.get("lon", 10.0))
 		var lat = float(entry.get("lat", 51.0))
@@ -298,8 +297,7 @@ func _try_select(world_pos: Vector3) -> void:
 	selected = closest
 	if selected:
 		selected.select()
-		print("Ausgewählt: ", selected.unit_name, " [", selected.nation, "]  MP: ", selected.move_points, "/", selected.move_points_max)
-		# Show pending path if this unit already has an order
+		print("Ausgewählt: ", selected.unit_name, " [", selected.nation, "]  MP: ", selected.move_points, "/", selected.move_points_max, "  CP: ", selected.combat_points)
 		if selected.has_order():
 			_show_path(selected.pending_path, get_nation_color(selected.nation))
 			path_unit = selected
@@ -321,17 +319,8 @@ func _enemy_on_hex(ground_pos: Vector3, attacker: MilEntity) -> MilEntity:
 			return u
 	return null
 
-func _truncate_path(path: Array[Vector3], max_steps: int) -> Array[Vector3]:
-	## path[0] is start, so max length = max_steps + 1
-	if path.size() <= max_steps + 1:
-		return path
-	return path.slice(0, max_steps + 1)
-
 func _try_move(world_pos: Vector3) -> void:
 	if selected == null or hex_map == null:
-		return
-	if selected.move_points <= 0:
-		print("Keine Bewegungspunkte mehr übrig")
 		return
 
 	var unit_type = selected.get_type_string()
@@ -340,48 +329,55 @@ func _try_move(world_pos: Vector3) -> void:
 
 	# Explicit attack order on enemy hex
 	if enemy != null and can_fight(selected, enemy):
-		_end_combats_involving(selected)
-
 		if unit_type == "air" or unit_type == "ballistic":
-			# Air/Ballistic: order to fly over target (executes on day end)
+			# Air/Ballistic: full path order (multi-turn if needed), combat on arrival
+			if selected.move_points <= 0 and not selected.has_order():
+				print("Keine Bewegungspunkte mehr")
+				return
 			print("Suche Pfad für ", unit_type, " (Angriff über Ziel)...")
 			var path: Array[Vector3] = hex_map.find_path(selected.get_ground_pos(), goal_center, unit_type)
 			if path.is_empty():
 				print("Kein gültiger Pfad zum Ziel")
 				return
-			path = _truncate_path(path, selected.move_points)
-			print("Befehl: ", path.size() - 1, " Hexes (von max ", selected.move_points, ") – wird bei Tagesende ausgeführt")
+			print("Befehl: gesamter Pfad (", path.size() - 1, " Hexes) – ", mini(4, path.size() - 1), " pro Tag")
 			selected.set_order(path)
 			_show_path(path, get_nation_color(selected.nation))
 			path_unit = selected
 		else:
-			# Land & Naval: stay put, combat starts immediately (no movement order)
-			_start_combat(selected, enemy)
-			print("⚔ Angriffsbefehl: ", selected.unit_name, " vs ", enemy.unit_name, " (bleiben stehen)")
+			# Land & Naval: pending combat (resolves at end of turn)
+			if selected.combat_points - selected.committed_combat <= 0:
+				print("Keine Kampfaktionen mehr übrig")
+				return
+			_end_combats_involving(selected)
 			selected.clear_order()
 			_clear_path_visual()
+			selected.set_combat_order(enemy)
+			_show_pending_combat_marker(selected, enemy)
+			print("⚔ Kampf befohlen: ", selected.unit_name, " vs ", enemy.unit_name, " (beginnt bei Tagesende)")
 		return
 
-	# Normal movement order (pending until day advances)
+	# Normal movement – store FULL path (multi-turn)
+	if selected.move_points <= 0 and not selected.has_order():
+		print("Keine Bewegungspunkte mehr übrig")
+		return
+
 	print("Suche Pfad für ", unit_type, "...")
 	var path: Array[Vector3] = hex_map.find_path(selected.get_ground_pos(), goal_center, unit_type)
 	if path.is_empty():
 		print("Kein gültiger Pfad")
 		return
-
-	path = _truncate_path(path, selected.move_points)
 	if path.size() < 2:
 		print("Ziel ist das aktuelle Hex – kein Befehl")
 		return
 
-	print("Befehl erteilt: ", path.size() - 1, " Hexes (MP: ", selected.move_points, ") – Bewegung bei Tagesende")
+	var total_steps = path.size() - 1
+	print("Befehl erteilt: ", total_steps, " Hexes gesamt (", mini(selected.move_points, total_steps), " diese Runde)")
 	_end_combats_involving(selected)
 	selected.set_order(path)
 	_show_path(path, get_nation_color(selected.nation))
 	path_unit = selected
 
 func _on_unit_arrived(unit: MilEntity) -> void:
-	# 1) Combat if landing on same hex as fightable enemy (Air/Ballistic)
 	var ground = unit.get_ground_pos()
 	for other in units:
 		if other == unit:
@@ -392,7 +388,6 @@ func _on_unit_arrived(unit: MilEntity) -> void:
 			_start_combat(unit, other)
 			break
 
-	# 2) Territory capture / re-capture (only Land units)
 	if unit.get_type_string() == "land" and hex_map != null:
 		var idx = hex_map.get_closest_hex_index(ground)
 		if idx >= 0:
@@ -403,8 +398,13 @@ func _on_unit_arrived(unit: MilEntity) -> void:
 
 func _on_order_finished(unit: MilEntity) -> void:
 	if path_unit == unit:
-		_clear_path_visual()
-		path_unit = null
+		# Only clear visual if no remaining multi-turn path
+		if not unit.has_order():
+			_clear_path_visual()
+			path_unit = null
+		else:
+			# Still has remaining path – refresh visual
+			_show_path(unit.pending_path, get_nation_color(unit.nation))
 
 func _show_path(points: Array[Vector3], color: Color) -> void:
 	_clear_path_visual()
@@ -458,12 +458,27 @@ func _combat_key(a: MilEntity, b: MilEntity) -> String:
 		return ida + "|" + idb
 	return idb + "|" + ida
 
+func _show_pending_combat_marker(a: MilEntity, b: MilEntity) -> void:
+	var key = _combat_key(a, b)
+	_clear_pending_combat_marker(a, b)
+	var marker = _create_combat_marker(a, b, true)  # faint = true
+	pending_combat_markers[key] = marker
+
+func _clear_pending_combat_marker(a: MilEntity, b: MilEntity) -> void:
+	var key = _combat_key(a, b)
+	if pending_combat_markers.has(key):
+		var m = pending_combat_markers[key]
+		if is_instance_valid(m):
+			m.queue_free()
+		pending_combat_markers.erase(key)
+
 func _start_combat(a: MilEntity, b: MilEntity) -> void:
 	var key = _combat_key(a, b)
 	if combats.has(key):
 		return
-
-	var marker = _create_combat_marker(a, b)
+	# Remove faint marker if any
+	_clear_pending_combat_marker(a, b)
+	var marker = _create_combat_marker(a, b, false)
 	combats[key] = {"a": a, "b": b, "marker": marker}
 	print("⚔ Combat: ", a.unit_name, " vs ", b.unit_name)
 
@@ -475,14 +490,18 @@ func _end_combats_involving(unit: MilEntity) -> void:
 			if is_instance_valid(c.marker):
 				c.marker.queue_free()
 			to_remove.append(key)
-			print("Combat beendet (", unit.unit_name, " bewegt sich)")
+			print("Combat beendet (", unit.unit_name, ")")
 	for key in to_remove:
 		combats.erase(key)
+	# Also clear pending combat orders involving this unit
+	if unit.has_combat_order():
+		_clear_pending_combat_marker(unit, unit.pending_combat_target)
+		unit.clear_combat_order()
 
-func _create_combat_marker(a: MilEntity, b: MilEntity) -> MeshInstance3D:
+func _create_combat_marker(a: MilEntity, b: MilEntity, faint: bool = false) -> MeshInstance3D:
 	var mid = (a.position + b.position) * 0.5
 	var mi = MeshInstance3D.new()
-	mi.name = "CombatMarker"
+	mi.name = "CombatMarker" if not faint else "PendingCombatMarker"
 	add_child(mi)
 	mi.position = mid
 
@@ -490,6 +509,7 @@ func _create_combat_marker(a: MilEntity, b: MilEntity) -> MeshInstance3D:
 	st.begin(Mesh.PRIMITIVE_LINES)
 	var r = combat_marker_size * 0.5
 	var seg = 8
+	var col = Color(1.0, 0.15, 0.1, 0.35) if faint else Color(1.0, 0.1, 0.1, 1.0)
 	for i in seg:
 		var lat0 = PI * (-0.5 + float(i) / seg)
 		var lat1 = PI * (-0.5 + float(i + 1) / seg)
@@ -499,23 +519,31 @@ func _create_combat_marker(a: MilEntity, b: MilEntity) -> MeshInstance3D:
 			var p1 = Vector3(r * cos(lat0) * cos(lon0), r * sin(lat0), r * cos(lat0) * sin(lon0))
 			var p2 = Vector3(r * cos(lat0) * cos(lon1), r * sin(lat0), r * cos(lat0) * sin(lon1))
 			var p3 = Vector3(r * cos(lat1) * cos(lon0), r * sin(lat1), r * cos(lat1) * sin(lon0))
-			st.set_color(Color(1.0, 0.1, 0.1))
+			st.set_color(col)
 			st.add_vertex(p1)
-			st.set_color(Color(1.0, 0.1, 0.1))
+			st.set_color(col)
 			st.add_vertex(p2)
-			st.set_color(Color(1.0, 0.1, 0.1))
+			st.set_color(col)
 			st.add_vertex(p1)
-			st.set_color(Color(1.0, 0.1, 0.1))
+			st.set_color(col)
 			st.add_vertex(p3)
 
 	var mesh = st.commit()
 	var mat = StandardMaterial3D.new()
-	mat.albedo_color = Color(1.0, 0.15, 0.1)
+	mat.vertex_color_use_as_albedo = true
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	mat.emission_enabled = true
-	mat.emission = Color(1.0, 0.2, 0.1)
-	mat.emission_energy_multiplier = 2.5
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	if faint:
+		mat.albedo_color = Color(1.0, 0.2, 0.15, 0.35)
+		mat.emission_enabled = true
+		mat.emission = Color(1.0, 0.25, 0.15)
+		mat.emission_energy_multiplier = 0.6
+	else:
+		mat.albedo_color = Color(1.0, 0.15, 0.1, 1.0)
+		mat.emission_enabled = true
+		mat.emission = Color(1.0, 0.2, 0.1)
+		mat.emission_energy_multiplier = 2.5
 	mi.mesh = mesh
 	mi.material_override = mat
 	return mi

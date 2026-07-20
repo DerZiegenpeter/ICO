@@ -10,9 +10,17 @@ enum Type { LAND, AIR, NAVAL, BALLISTIC }
 @export var unit_name: String = ""
 @export var nation: String = ""
 
-## Movement points per day (all entities default 4)
+## Movement points per day
 @export var move_points_max: int = 4
 var move_points: int = 4
+## Combat actions per day
+@export var combat_points_max: int = 2
+var combat_points: int = 2
+
+## How many move points are committed by the current order (for this turn)
+var committed_move: int = 0
+## How many combat points are committed (pending combat orders)
+var committed_combat: int = 0
 
 var target_pos: Vector3
 var selected := false
@@ -22,18 +30,25 @@ var path: Array[Vector3] = []
 var path_index: int = 0
 var moving := false
 
-## Pending order – executed when the day advances
+## Full remaining path – executed over multiple turns (4 hexes per turn)
 var pending_path: Array[Vector3] = []
+## Pending combat target (resolved at end of turn)
+var pending_combat_target: MilEntity = null
 
-## Emitted every time the unit arrives at a hex (intermediate + final)
 signal arrived_at_hex(unit: MilEntity)
-## Emitted when the unit finishes its entire ordered path
 signal order_finished(unit: MilEntity)
+
+## AP bar meshes
+var ap_move_boxes: Array[MeshInstance3D] = []
+var ap_combat_boxes: Array[MeshInstance3D] = []
 
 func _ready() -> void:
 	target_pos = position
 	move_points = move_points_max
+	combat_points = combat_points_max
 	_build_mesh()
+	_build_ap_bars()
+	_update_ap_bars()
 
 func _process(delta: float) -> void:
 	if not moving or path.is_empty():
@@ -76,29 +91,82 @@ func set_hex_position(pos: Vector3) -> void:
 	moving = false
 
 func set_order(new_path: Array[Vector3]) -> void:
-	## Store a pending movement order (does not move yet)
-	if new_path.is_empty():
+	## Store the FULL path. Unit will walk it over multiple turns.
+	if new_path.is_empty() or new_path.size() < 2:
 		pending_path.clear()
+		committed_move = 0
+		_update_ap_bars()
 		return
 	pending_path = new_path.duplicate()
+	# Commit only this turn's portion (max move_points)
+	var steps = pending_path.size() - 1
+	committed_move = mini(steps, move_points)
+	_update_ap_bars()
 
 func clear_order() -> void:
 	pending_path.clear()
+	committed_move = 0
+	_update_ap_bars()
 
 func has_order() -> bool:
 	return pending_path.size() >= 2
 
-func execute_order() -> void:
-	## Called when the day advances – start the actual movement
-	if pending_path.is_empty():
+func set_combat_order(target: MilEntity) -> void:
+	if combat_points - committed_combat <= 0:
 		return
-	var cost = maxi(0, pending_path.size() - 1)
-	move_points = maxi(0, move_points - cost)
-	follow_path(pending_path)
-	pending_path.clear()
+	pending_combat_target = target
+	committed_combat = 1
+	_update_ap_bars()
 
-func reset_move_points() -> void:
+func clear_combat_order() -> void:
+	pending_combat_target = null
+	committed_combat = 0
+	_update_ap_bars()
+
+func has_combat_order() -> bool:
+	return pending_combat_target != null and is_instance_valid(pending_combat_target)
+
+## Called at end of turn: walk up to move_points hexes along pending_path
+func execute_turn_movement() -> void:
+	if pending_path.size() < 2:
+		committed_move = 0
+		_update_ap_bars()
+		return
+	var steps = mini(move_points, pending_path.size() - 1)
+	if steps <= 0:
+		return
+	var segment: Array[Vector3] = pending_path.slice(0, steps + 1)
+	# Remaining path starts at the end of this segment
+	if steps + 1 < pending_path.size():
+		pending_path = pending_path.slice(steps)
+	else:
+		pending_path.clear()
+	move_points -= steps
+	committed_move = 0
+	_update_ap_bars()
+	follow_path(segment)
+
+## Called at end of turn: spend combat point (actual combat started by UnitManager)
+func execute_combat_order() -> void:
+	if not has_combat_order():
+		return
+	combat_points = maxi(0, combat_points - 1)
+	pending_combat_target = null
+	committed_combat = 0
+	_update_ap_bars()
+
+func reset_points() -> void:
 	move_points = move_points_max
+	combat_points = combat_points_max
+	# If still has remaining multi-turn path, re-commit this turn's portion
+	if pending_path.size() >= 2:
+		var steps = pending_path.size() - 1
+		committed_move = mini(steps, move_points)
+	else:
+		committed_move = 0
+	committed_combat = 0
+	pending_combat_target = null
+	_update_ap_bars()
 
 func follow_path(new_path: Array[Vector3]) -> void:
 	if new_path.is_empty():
@@ -108,7 +176,6 @@ func follow_path(new_path: Array[Vector3]) -> void:
 		arrived_at_hex.emit(self)
 		order_finished.emit(self)
 		return
-	# Important: duplicate so caller can clear the original array
 	path = new_path.duplicate()
 	path_index = 1
 	moving = true
@@ -162,6 +229,85 @@ func _build_mesh() -> void:
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	mesh_instance.mesh = mesh
 	mesh_instance.material_override = mat
+
+func _build_ap_bars() -> void:
+	## 4 green boxes (move) stacked vertically to the left, then 2 red (combat)
+	var box_size := 1.6
+	var gap := 0.45
+	var start_x := -size * 0.55 - 3.5
+	var start_y := 0.5
+
+	for i in move_points_max:
+		var mi = _make_ap_box(Color(0.2, 0.85, 0.25), box_size)
+		mi.position = Vector3(start_x, start_y + i * (box_size + gap), 0.0)
+		add_child(mi)
+		ap_move_boxes.append(mi)
+
+	var combat_x := start_x + box_size + gap + 0.3
+	for i in combat_points_max:
+		var mi = _make_ap_box(Color(0.9, 0.15, 0.12), box_size)
+		mi.position = Vector3(combat_x, start_y + i * (box_size + gap), 0.0)
+		add_child(mi)
+		ap_combat_boxes.append(mi)
+
+func _make_ap_box(col: Color, s: float) -> MeshInstance3D:
+	var mi = MeshInstance3D.new()
+	var st = SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var hs = s * 0.5
+	# Simple quad facing up (visible from top-down camera)
+	var y = 0.05
+	var verts = [
+		Vector3(-hs, y, -hs), Vector3(hs, y, -hs),
+		Vector3(hs, y, hs), Vector3(-hs, y, hs)
+	]
+	# two triangles
+	st.set_color(col)
+	st.add_vertex(verts[0]); st.add_vertex(verts[1]); st.add_vertex(verts[2])
+	st.set_color(col)
+	st.add_vertex(verts[0]); st.add_vertex(verts[2]); st.add_vertex(verts[3])
+	var mesh = st.commit()
+	var mat = StandardMaterial3D.new()
+	mat.vertex_color_use_as_albedo = true
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat.albedo_color = Color(1, 1, 1, 1)
+	mat.emission_enabled = true
+	mat.emission = col
+	mat.emission_energy_multiplier = 1.6
+	mi.mesh = mesh
+	mi.material_override = mat
+	return mi
+
+func _update_ap_bars() -> void:
+	# Green: available = move_points - committed_move  → lit; rest greyed
+	var available_move = maxi(0, move_points - committed_move)
+	for i in ap_move_boxes.size():
+		var lit = i < available_move
+		_set_box_state(ap_move_boxes[i], lit, Color(0.2, 0.85, 0.25))
+
+	var available_combat = maxi(0, combat_points - committed_combat)
+	for i in ap_combat_boxes.size():
+		var lit = i < available_combat
+		_set_box_state(ap_combat_boxes[i], lit, Color(0.9, 0.15, 0.12))
+
+func _set_box_state(mi: MeshInstance3D, lit: bool, active_col: Color) -> void:
+	if mi == null or not is_instance_valid(mi):
+		return
+	var mat = mi.material_override as StandardMaterial3D
+	if mat == null:
+		return
+	if lit:
+		mat.albedo_color = Color(1, 1, 1, 1)
+		mat.emission = active_col
+		mat.emission_energy_multiplier = 1.6
+		mi.visible = true
+	else:
+		# Greyed / dimmed
+		mat.albedo_color = Color(0.35, 0.35, 0.35, 0.45)
+		mat.emission = Color(0.25, 0.25, 0.25)
+		mat.emission_energy_multiplier = 0.3
+		mi.visible = true
 
 func _build_rectangle(st: SurfaceTool) -> void:
 	var s = size * 0.45
