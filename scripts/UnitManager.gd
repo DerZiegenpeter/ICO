@@ -14,14 +14,10 @@ var at_war: Dictionary = {}
 var nation_colors: Dictionary = {}
 var combats: Dictionary = {}
 
-## Path visualization
 var path_mesh_instance: MeshInstance3D = null
 var path_unit: MilEntity = null
-
-## Pending combat markers (faint) – key same as combats
 var pending_combat_markers: Dictionary = {}
 
-## ---- Time / Turn system ----
 var year: int = 1949
 var month: int = 5
 var day: int = 23
@@ -112,10 +108,8 @@ func end_turn() -> void:
 	_clear_path_visual()
 	path_unit = null
 
-	# 1) Resolve pending combats (land attacks ordered this turn)
 	_resolve_pending_combats()
 
-	# 2) Execute movement segments (up to 4 hexes each) simultaneously
 	var moved := 0
 	for u in units:
 		if u.has_order():
@@ -123,11 +117,9 @@ func end_turn() -> void:
 			moved += 1
 	print("Bewegungsbefehle ausgeführt: ", moved)
 
-	# 3) Advance calendar
 	_advance_day()
 	print("Neuer Tag: ", day, ". ", MONTH_NAMES[month], " ", year)
 
-	# 4) Reset points for the new day (multi-turn paths re-commit automatically)
 	for u in units:
 		u.reset_points()
 
@@ -138,7 +130,6 @@ func _resolve_pending_combats() -> void:
 		if not u.has_combat_order():
 			continue
 		var target = u.pending_combat_target
-		# Remove faint marker
 		_clear_pending_combat_marker(u, target)
 		if is_instance_valid(target) and can_fight(u, target):
 			_start_combat(u, target)
@@ -325,12 +316,22 @@ func _try_move(world_pos: Vector3) -> void:
 
 	var unit_type = selected.get_type_string()
 	var goal_center = hex_map.get_closest_hex_center(world_pos)
+
+	# Right-click on OWN hex → cancel all pending orders
+	if _same_hex(selected.get_ground_pos(), goal_center):
+		if selected.has_order() or selected.has_combat_order():
+			_end_combats_involving(selected)
+			selected.clear_order()
+			selected.clear_combat_order()
+			_clear_path_visual()
+			path_unit = null
+			print("Befehl abgebrochen")
+		return
+
 	var enemy = _enemy_on_hex(goal_center, selected)
 
-	# Explicit attack order on enemy hex
 	if enemy != null and can_fight(selected, enemy):
 		if unit_type == "air" or unit_type == "ballistic":
-			# Air/Ballistic: full path order (multi-turn if needed), combat on arrival
 			if selected.move_points <= 0 and not selected.has_order():
 				print("Keine Bewegungspunkte mehr")
 				return
@@ -339,12 +340,11 @@ func _try_move(world_pos: Vector3) -> void:
 			if path.is_empty():
 				print("Kein gültiger Pfad zum Ziel")
 				return
-			print("Befehl: gesamter Pfad (", path.size() - 1, " Hexes) – ", mini(4, path.size() - 1), " pro Tag")
+			print("Befehl: gesamter Pfad (", path.size() - 1, " Hexes)")
 			selected.set_order(path)
 			_show_path(path, get_nation_color(selected.nation))
 			path_unit = selected
 		else:
-			# Land & Naval: pending combat (resolves at end of turn)
 			if selected.combat_points - selected.committed_combat <= 0:
 				print("Keine Kampfaktionen mehr übrig")
 				return
@@ -356,7 +356,6 @@ func _try_move(world_pos: Vector3) -> void:
 			print("⚔ Kampf befohlen: ", selected.unit_name, " vs ", enemy.unit_name, " (beginnt bei Tagesende)")
 		return
 
-	# Normal movement – store FULL path (multi-turn)
 	if selected.move_points <= 0 and not selected.has_order():
 		print("Keine Bewegungspunkte mehr übrig")
 		return
@@ -367,7 +366,7 @@ func _try_move(world_pos: Vector3) -> void:
 		print("Kein gültiger Pfad")
 		return
 	if path.size() < 2:
-		print("Ziel ist das aktuelle Hex – kein Befehl")
+		print("Ziel ist das aktuelle Hex")
 		return
 
 	var total_steps = path.size() - 1
@@ -398,12 +397,10 @@ func _on_unit_arrived(unit: MilEntity) -> void:
 
 func _on_order_finished(unit: MilEntity) -> void:
 	if path_unit == unit:
-		# Only clear visual if no remaining multi-turn path
 		if not unit.has_order():
 			_clear_path_visual()
 			path_unit = null
 		else:
-			# Still has remaining path – refresh visual
 			_show_path(unit.pending_path, get_nation_color(unit.nation))
 
 func _show_path(points: Array[Vector3], color: Color) -> void:
@@ -461,7 +458,7 @@ func _combat_key(a: MilEntity, b: MilEntity) -> String:
 func _show_pending_combat_marker(a: MilEntity, b: MilEntity) -> void:
 	var key = _combat_key(a, b)
 	_clear_pending_combat_marker(a, b)
-	var marker = _create_combat_marker(a, b, true)  # faint = true
+	var marker = _create_combat_marker(a, b, true)
 	pending_combat_markers[key] = marker
 
 func _clear_pending_combat_marker(a: MilEntity, b: MilEntity) -> void:
@@ -476,7 +473,6 @@ func _start_combat(a: MilEntity, b: MilEntity) -> void:
 	var key = _combat_key(a, b)
 	if combats.has(key):
 		return
-	# Remove faint marker if any
 	_clear_pending_combat_marker(a, b)
 	var marker = _create_combat_marker(a, b, false)
 	combats[key] = {"a": a, "b": b, "marker": marker}
@@ -490,10 +486,8 @@ func _end_combats_involving(unit: MilEntity) -> void:
 			if is_instance_valid(c.marker):
 				c.marker.queue_free()
 			to_remove.append(key)
-			print("Combat beendet (", unit.unit_name, ")")
 	for key in to_remove:
 		combats.erase(key)
-	# Also clear pending combat orders involving this unit
 	if unit.has_combat_order():
 		_clear_pending_combat_marker(unit, unit.pending_combat_target)
 		unit.clear_combat_order()

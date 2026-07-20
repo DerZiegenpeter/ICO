@@ -10,16 +10,12 @@ enum Type { LAND, AIR, NAVAL, BALLISTIC }
 @export var unit_name: String = ""
 @export var nation: String = ""
 
-## Movement points per day
 @export var move_points_max: int = 4
 var move_points: int = 4
-## Combat actions per day
 @export var combat_points_max: int = 2
 var combat_points: int = 2
 
-## How many move points are committed by the current order (for this turn)
 var committed_move: int = 0
-## How many combat points are committed (pending combat orders)
 var committed_combat: int = 0
 
 var target_pos: Vector3
@@ -30,15 +26,12 @@ var path: Array[Vector3] = []
 var path_index: int = 0
 var moving := false
 
-## Full remaining path – executed over multiple turns (4 hexes per turn)
 var pending_path: Array[Vector3] = []
-## Pending combat target (resolved at end of turn)
 var pending_combat_target: MilEntity = null
 
 signal arrived_at_hex(unit: MilEntity)
 signal order_finished(unit: MilEntity)
 
-## AP bar meshes
 var ap_move_boxes: Array[MeshInstance3D] = []
 var ap_combat_boxes: Array[MeshInstance3D] = []
 
@@ -91,14 +84,12 @@ func set_hex_position(pos: Vector3) -> void:
 	moving = false
 
 func set_order(new_path: Array[Vector3]) -> void:
-	## Store the FULL path. Unit will walk it over multiple turns.
 	if new_path.is_empty() or new_path.size() < 2:
 		pending_path.clear()
 		committed_move = 0
 		_update_ap_bars()
 		return
 	pending_path = new_path.duplicate()
-	# Commit only this turn's portion (max move_points)
 	var steps = pending_path.size() - 1
 	committed_move = mini(steps, move_points)
 	_update_ap_bars()
@@ -126,7 +117,6 @@ func clear_combat_order() -> void:
 func has_combat_order() -> bool:
 	return pending_combat_target != null and is_instance_valid(pending_combat_target)
 
-## Called at end of turn: walk up to move_points hexes along pending_path
 func execute_turn_movement() -> void:
 	if pending_path.size() < 2:
 		committed_move = 0
@@ -136,7 +126,6 @@ func execute_turn_movement() -> void:
 	if steps <= 0:
 		return
 	var segment: Array[Vector3] = pending_path.slice(0, steps + 1)
-	# Remaining path starts at the end of this segment
 	if steps + 1 < pending_path.size():
 		pending_path = pending_path.slice(steps)
 	else:
@@ -146,7 +135,6 @@ func execute_turn_movement() -> void:
 	_update_ap_bars()
 	follow_path(segment)
 
-## Called at end of turn: spend combat point (actual combat started by UnitManager)
 func execute_combat_order() -> void:
 	if not has_combat_order():
 		return
@@ -158,7 +146,6 @@ func execute_combat_order() -> void:
 func reset_points() -> void:
 	move_points = move_points_max
 	combat_points = combat_points_max
-	# If still has remaining multi-turn path, re-commit this turn's portion
 	if pending_path.size() >= 2:
 		var steps = pending_path.size() - 1
 		committed_move = mini(steps, move_points)
@@ -231,22 +218,25 @@ func _build_mesh() -> void:
 	mesh_instance.material_override = mat
 
 func _build_ap_bars() -> void:
-	## 4 green boxes (move) stacked vertically to the left, then 2 red (combat)
-	var box_size := 1.6
-	var gap := 0.45
-	var start_x := -size * 0.55 - 3.5
-	var start_y := 0.5
+	## Horizontal row to the LEFT of the unit (visible from top-down)
+	var box_size := 1.8
+	var gap := 0.35
+	var y := 0.35
+	var z := 0.0
+	var start_x := -size * 0.55 - 2.0
 
+	# Move AP: green, left to right away from unit
 	for i in move_points_max:
 		var mi = _make_ap_box(Color(0.2, 0.85, 0.25), box_size)
-		mi.position = Vector3(start_x, start_y + i * (box_size + gap), 0.0)
+		mi.position = Vector3(start_x - i * (box_size + gap), y, z)
 		add_child(mi)
 		ap_move_boxes.append(mi)
 
-	var combat_x := start_x + box_size + gap + 0.3
+	# Combat AP: red, further left with a small gap
+	var combat_start = start_x - move_points_max * (box_size + gap) - gap * 2.0
 	for i in combat_points_max:
 		var mi = _make_ap_box(Color(0.9, 0.15, 0.12), box_size)
-		mi.position = Vector3(combat_x, start_y + i * (box_size + gap), 0.0)
+		mi.position = Vector3(combat_start - i * (box_size + gap), y, z)
 		add_child(mi)
 		ap_combat_boxes.append(mi)
 
@@ -255,13 +245,11 @@ func _make_ap_box(col: Color, s: float) -> MeshInstance3D:
 	var st = SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var hs = s * 0.5
-	# Simple quad facing up (visible from top-down camera)
 	var y = 0.05
 	var verts = [
 		Vector3(-hs, y, -hs), Vector3(hs, y, -hs),
 		Vector3(hs, y, hs), Vector3(-hs, y, hs)
 	]
-	# two triangles
 	st.set_color(col)
 	st.add_vertex(verts[0]); st.add_vertex(verts[1]); st.add_vertex(verts[2])
 	st.set_color(col)
@@ -280,7 +268,6 @@ func _make_ap_box(col: Color, s: float) -> MeshInstance3D:
 	return mi
 
 func _update_ap_bars() -> void:
-	# Green: available = move_points - committed_move  → lit; rest greyed
 	var available_move = maxi(0, move_points - committed_move)
 	for i in ap_move_boxes.size():
 		var lit = i < available_move
@@ -303,7 +290,6 @@ func _set_box_state(mi: MeshInstance3D, lit: bool, active_col: Color) -> void:
 		mat.emission_energy_multiplier = 1.6
 		mi.visible = true
 	else:
-		# Greyed / dimmed
 		mat.albedo_color = Color(0.35, 0.35, 0.35, 0.45)
 		mat.emission = Color(0.25, 0.25, 0.25)
 		mat.emission_energy_multiplier = 0.3
