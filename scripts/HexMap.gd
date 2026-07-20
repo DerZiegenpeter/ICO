@@ -7,14 +7,12 @@ extends Node3D
 @export var hex_size: float = 0.104
 @export var edge_inset: float = 0.97
 @export var flat_top: bool = true
-## Center-to-center distance for neighbors (auto-derived if <= 0)
 @export var neighbor_dist: float = 0.0
 
 @export var land_color: Color = Color(0.2, 0.72, 0.28)
 @export var ocean_color: Color = Color(0.15, 0.42, 0.92)
 @export var lake_color: Color = Color(0.4, 0.75, 0.98)
 
-## Zoom fade thresholds (camera height)
 @export var political_full_height: float = 380.0
 @export var political_fade_height: float = 140.0
 @export var hex_full_height: float = 90.0
@@ -36,11 +34,13 @@ var hex_centers: Array[Vector3] = []
 var hex_types: Array[String] = []
 var hex_owners: Array[String] = []
 var hex_controllers: Array[String] = []
+var hex_states: Array[String] = []
+var hex_cities: Array[String] = []
+var hex_rivers: Array[String] = []
 var spatial_hash: Dictionary = {}
 var _cell_size: float = 20.0
 var _neighbor_range: float = 22.0
 
-## nation_id -> Color
 var nation_colors: Dictionary = {}
 
 func _ready() -> void:
@@ -57,11 +57,8 @@ func _update_zoom_fade() -> void:
 		return
 	var h = cam.position.y
 
-	# Political: fully visible high up, fades out when zooming in
 	var pol_alpha = smoothstep(political_fade_height, political_full_height, h)
-	# Hex wireframe + occupation: opposite
 	var hex_alpha = 1.0 - smoothstep(hex_full_height, hex_fade_height, h)
-	# Cities: only when quite close
 	var city_alpha = 1.0 - smoothstep(city_full_height, city_fade_height, h)
 
 	if mat_political:
@@ -96,12 +93,10 @@ func _load_nations() -> void:
 func get_nation_color(nation_id: String) -> Color:
 	return nation_colors.get(nation_id, Color(0.7, 0.7, 0.7))
 
-## Temporary prototype ownership – replace later with real border data
+## Fallback only if JSON has no owner field
 func _guess_owner(lon: float, lat: float) -> String:
-	# East Prussia roughly German
 	if lon >= 19.5 and lat >= 53.2 and lat <= 55.3:
 		return "GER"
-	# Rough split near the Oder (~14.8–15.0)
 	if lon < 14.85:
 		return "GER"
 	return "POL"
@@ -136,6 +131,9 @@ func load_and_draw() -> void:
 	hex_types.clear()
 	hex_owners.clear()
 	hex_controllers.clear()
+	hex_states.clear()
+	hex_cities.clear()
+	hex_rivers.clear()
 	spatial_hash.clear()
 
 	_neighbor_range = neighbor_dist if neighbor_dist > 0.0 else (hex_size * scale_factor * 2.15)
@@ -175,13 +173,24 @@ func load_and_draw() -> void:
 		var lon = float(h.get("lon", 0.0))
 		var lat = float(h.get("lat", 0.0))
 		var typ = str(h.get("type", "ocean")).to_lower()
-		var is_city: bool = bool(h.get("city", false))
 
-		var owner := ""
-		var controller := ""
+		# City / river as names (empty string = none)
+		var city_name := str(h.get("city", "")).strip_edges()
+		var river_name := str(h.get("river", "")).strip_edges()
+		# Support old boolean city field too
+		if city_name == "" and bool(h.get("city", false)):
+			city_name = "city"
+
+		# Owner / controller / state from JSON
+		var owner := str(h.get("owner", "")).strip_edges()
+		var controller := str(h.get("controller", "")).strip_edges()
+		var state := str(h.get("state", "")).strip_edges()
+
 		if typ == "land":
-			owner = _guess_owner(lon, lat)
-			controller = owner
+			if owner == "":
+				owner = _guess_owner(lon, lat)
+			if controller == "":
+				controller = owner
 
 		var color = ocean_color
 		if typ == "land":
@@ -195,6 +204,9 @@ func load_and_draw() -> void:
 		hex_types.append(typ)
 		hex_owners.append(owner)
 		hex_controllers.append(controller)
+		hex_states.append(state)
+		hex_cities.append(city_name)
+		hex_rivers.append(river_name)
 
 		var key = _hash_key(center)
 		if not spatial_hash.has(key):
@@ -203,23 +215,19 @@ func load_and_draw() -> void:
 
 		_add_hex(st, center, color)
 
-		# Political fill (owner color) – only land
 		if typ == "land":
 			_add_hex_filled(st_pol, center, get_nation_color(owner))
 
-		# Occupation overlay (controller != owner) → dashed in controller color
 		if typ == "land" and controller != "" and controller != owner:
 			_add_hex_dashed(st_occ, center, get_nation_color(controller))
 
-		# City lights
-		if is_city and typ == "land":
+		if city_name != "" and typ == "land":
 			_add_city_lights(st_city, center)
 			city_count += 1
 
 		if i > 0 and i % 50000 == 0:
 			print("  ... ", i)
 
-	# --- Hex wireframe material ---
 	var mesh = st.commit()
 	mat_hex = StandardMaterial3D.new()
 	mat_hex.vertex_color_use_as_albedo = true
@@ -230,7 +238,6 @@ func load_and_draw() -> void:
 	mesh_instance.mesh = mesh
 	mesh_instance.material_override = mat_hex
 
-	# --- Occupation material ---
 	var mesh_occ = st_occ.commit()
 	mat_occ = StandardMaterial3D.new()
 	mat_occ.vertex_color_use_as_albedo = true
@@ -241,7 +248,6 @@ func load_and_draw() -> void:
 	occupation_mesh_instance.mesh = mesh_occ
 	occupation_mesh_instance.material_override = mat_occ
 
-	# --- City lights material ---
 	var mesh_city = st_city.commit()
 	mat_city = StandardMaterial3D.new()
 	mat_city.vertex_color_use_as_albedo = true
@@ -257,7 +263,6 @@ func load_and_draw() -> void:
 	city_lights_mesh_instance.mesh = mesh_city
 	city_lights_mesh_instance.material_override = mat_city
 
-	# --- Political map material ---
 	var mesh_pol = st_pol.commit()
 	mat_political = StandardMaterial3D.new()
 	mat_political.vertex_color_use_as_albedo = true
@@ -317,7 +322,6 @@ func rebuild_occupation_overlay() -> void:
 			_add_hex_dashed(st_occ, hex_centers[i], get_nation_color(controller))
 	var mesh_occ = st_occ.commit()
 	occupation_mesh_instance.mesh = mesh_occ
-	# keep existing material (alpha controlled by zoom)
 
 func set_controller(index: int, nation_id: String) -> void:
 	if index < 0 or index >= hex_controllers.size():
@@ -339,6 +343,21 @@ func get_hex_controller(index: int) -> String:
 	if index < 0 or index >= hex_controllers.size():
 		return ""
 	return hex_controllers[index]
+
+func get_hex_state(index: int) -> String:
+	if index < 0 or index >= hex_states.size():
+		return ""
+	return hex_states[index]
+
+func get_hex_city(index: int) -> String:
+	if index < 0 or index >= hex_cities.size():
+		return ""
+	return hex_cities[index]
+
+func get_hex_river(index: int) -> String:
+	if index < 0 or index >= hex_rivers.size():
+		return ""
+	return hex_rivers[index]
 
 func _hash_key(pos: Vector3) -> Vector2i:
 	return Vector2i(int(floor(pos.x / _cell_size)), int(floor(pos.z / _cell_size)))
