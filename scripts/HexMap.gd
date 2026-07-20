@@ -101,6 +101,24 @@ func _guess_owner(lon: float, lat: float) -> String:
 		return "GER"
 	return "POL"
 
+## Parse city field: accepts string name OR boolean true. Boolean false / missing = no city.
+func _parse_name_field(raw) -> String:
+	if raw == null:
+		return ""
+	var t = typeof(raw)
+	if t == TYPE_BOOL:
+		return "city" if raw else ""
+	if t == TYPE_STRING:
+		var s = str(raw).strip_edges()
+		# Guard against stringified booleans from bad exports
+		if s == "" or s.to_lower() == "false" or s == "0":
+			return ""
+		if s.to_lower() == "true":
+			return "city"
+		return s
+	# numbers or other → ignore
+	return ""
+
 func load_and_draw() -> void:
 	if mesh_instance and is_instance_valid(mesh_instance):
 		mesh_instance.queue_free()
@@ -174,14 +192,12 @@ func load_and_draw() -> void:
 		var lat = float(h.get("lat", 0.0))
 		var typ = str(h.get("type", "ocean")).to_lower()
 
-		# City / river as names (empty string = none)
-		var city_name := str(h.get("city", "")).strip_edges()
-		var river_name := str(h.get("river", "")).strip_edges()
-		# Support old boolean city field too
-		if city_name == "" and bool(h.get("city", false)):
-			city_name = "city"
+		var city_name := _parse_name_field(h.get("city", null))
+		var river_name := _parse_name_field(h.get("river", null))
+		# river boolean true without name → generic label
+		if river_name == "city":
+			river_name = "river"
 
-		# Owner / controller / state from JSON
 		var owner := str(h.get("owner", "")).strip_edges()
 		var controller := str(h.get("controller", "")).strip_edges()
 		var state := str(h.get("state", "")).strip_edges()
