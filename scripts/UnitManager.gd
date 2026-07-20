@@ -19,17 +19,129 @@ var nation_colors: Dictionary = {}
 ## Active combats: key "idA|idB" -> { a, b, marker }
 var combats: Dictionary = {}
 
-## Path visualization
+## Path visualization (for currently selected unit's pending order)
 var path_mesh_instance: MeshInstance3D = null
 var path_unit: MilEntity = null
+
+## ---- Time / Turn system ----
+var year: int = 1949
+var month: int = 5
+var day: int = 23
+var date_label: Label
+var hint_label: Label
+var resolving := false
+
+const MONTH_NAMES := [
+	"", "Januar", "Februar", "März", "April", "Mai", "Juni",
+	"Juli", "August", "September", "Oktober", "November", "Dezember"
+]
 
 func _ready() -> void:
 	hex_map = get_node_or_null(hex_map_path)
 	await get_tree().process_frame
 	await get_tree().process_frame
+	_setup_ui()
 	_load_nations()
 	_load_diplomacy()
 	_load_oob()
+	_update_date_label()
+
+func _setup_ui() -> void:
+	var canvas := CanvasLayer.new()
+	canvas.name = "UI"
+	add_child(canvas)
+
+	# Date – top right
+	date_label = Label.new()
+	date_label.name = "DateLabel"
+	date_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	date_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	date_label.add_theme_font_size_override("font_size", 24)
+	date_label.add_theme_color_override("font_color", Color(0.95, 0.95, 0.9))
+	date_label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.7))
+	date_label.add_theme_constant_override("shadow_offset_x", 1)
+	date_label.add_theme_constant_override("shadow_offset_y", 1)
+	date_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	date_label.offset_left = -320
+	date_label.offset_top = 14
+	date_label.offset_right = -18
+	date_label.offset_bottom = 50
+	canvas.add_child(date_label)
+
+	# Hint – below date
+	hint_label = Label.new()
+	hint_label.name = "HintLabel"
+	hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	hint_label.add_theme_font_size_override("font_size", 14)
+	hint_label.add_theme_color_override("font_color", Color(0.75, 0.75, 0.7))
+	hint_label.text = "Leertaste = Nächster Tag"
+	hint_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	hint_label.offset_left = -320
+	hint_label.offset_top = 48
+	hint_label.offset_right = -18
+	hint_label.offset_bottom = 72
+	canvas.add_child(hint_label)
+
+func _update_date_label() -> void:
+	if date_label:
+		date_label.text = "%d. %s %d" % [day, MONTH_NAMES[month], year]
+
+func _advance_day() -> void:
+	day += 1
+	var days_in_month := _days_in_month(year, month)
+	if day > days_in_month:
+		day = 1
+		month += 1
+		if month > 12:
+			month = 1
+			year += 1
+	_update_date_label()
+
+func _days_in_month(y: int, m: int) -> int:
+	match m:
+		1, 3, 5, 7, 8, 10, 12:
+			return 31
+		4, 6, 9, 11:
+			return 30
+		2:
+			# leap year
+			if (y % 4 == 0 and y % 100 != 0) or (y % 400 == 0):
+				return 29
+			return 28
+	return 30
+
+func end_turn() -> void:
+	if resolving:
+		return
+	resolving = true
+	print("========== Tag endet → ", day, ".", month, ".", year, " ==========")
+
+	_clear_path_visual()
+	path_unit = null
+
+	# Execute all pending orders simultaneously
+	var moved := 0
+	for u in units:
+		if u.has_order():
+			u.execute_order()
+			moved += 1
+	print("Befehle ausgeführt: ", moved)
+
+	# Advance calendar
+	_advance_day()
+	print("Neuer Tag: ", day, ". ", MONTH_NAMES[month], " ", year)
+
+	# Refresh movement points for the new day
+	for u in units:
+		u.reset_move_points()
+
+	resolving = false
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_SPACE:
+			end_turn()
+			get_viewport().set_input_as_handled()
 
 func _load_nations() -> void:
 	nation_colors.clear()
@@ -146,11 +258,14 @@ func _load_oob() -> void:
 		add_child(unit)
 		unit.set_hex_position(world_pos)
 		unit.arrived_at_hex.connect(_on_unit_arrived)
+		unit.order_finished.connect(_on_order_finished)
 		units.append(unit)
 
 	print("OOB geladen – Einheiten: ", units.size())
 
 func _input(event: InputEvent) -> void:
+	if resolving:
+		return
 	if not (event is InputEventMouseButton and event.pressed):
 		return
 	var world_pos = _screen_to_ground(event.position)
@@ -183,9 +298,18 @@ func _try_select(world_pos: Vector3) -> void:
 	selected = closest
 	if selected:
 		selected.select()
-		print("Ausgewählt: ", selected.unit_name, " [", selected.nation, "]")
+		print("Ausgewählt: ", selected.unit_name, " [", selected.nation, "]  MP: ", selected.move_points, "/", selected.move_points_max)
+		# Show pending path if this unit already has an order
+		if selected.has_order():
+			_show_path(selected.pending_path, get_nation_color(selected.nation))
+			path_unit = selected
+		else:
+			_clear_path_visual()
+			path_unit = null
 	else:
 		print("Nichts ausgewählt")
+		_clear_path_visual()
+		path_unit = null
 
 func _enemy_on_hex(ground_pos: Vector3, attacker: MilEntity) -> MilEntity:
 	for u in units:
@@ -197,8 +321,17 @@ func _enemy_on_hex(ground_pos: Vector3, attacker: MilEntity) -> MilEntity:
 			return u
 	return null
 
+func _truncate_path(path: Array[Vector3], max_steps: int) -> Array[Vector3]:
+	## path[0] is start, so max length = max_steps + 1
+	if path.size() <= max_steps + 1:
+		return path
+	return path.slice(0, max_steps + 1)
+
 func _try_move(world_pos: Vector3) -> void:
 	if selected == null or hex_map == null:
+		return
+	if selected.move_points <= 0:
+		print("Keine Bewegungspunkte mehr übrig")
 		return
 
 	var unit_type = selected.get_type_string()
@@ -208,36 +341,44 @@ func _try_move(world_pos: Vector3) -> void:
 	# Explicit attack order on enemy hex
 	if enemy != null and can_fight(selected, enemy):
 		_end_combats_involving(selected)
-		_clear_path_visual()
 
 		if unit_type == "air" or unit_type == "ballistic":
+			# Air/Ballistic: order to fly over target (executes on day end)
 			print("Suche Pfad für ", unit_type, " (Angriff über Ziel)...")
 			var path: Array[Vector3] = hex_map.find_path(selected.get_ground_pos(), goal_center, unit_type)
 			if path.is_empty():
 				print("Kein gültiger Pfad zum Ziel")
 				return
-			print("Pfad mit ", path.size(), " Hexes gefunden – fliege/rakete zum Ziel")
+			path = _truncate_path(path, selected.move_points)
+			print("Befehl: ", path.size() - 1, " Hexes (von max ", selected.move_points, ") – wird bei Tagesende ausgeführt")
+			selected.set_order(path)
 			_show_path(path, get_nation_color(selected.nation))
 			path_unit = selected
-			selected.follow_path(path)
 		else:
-			# Land & Naval: stay put, start combat immediately
+			# Land & Naval: stay put, combat starts immediately (no movement order)
 			_start_combat(selected, enemy)
 			print("⚔ Angriffsbefehl: ", selected.unit_name, " vs ", enemy.unit_name, " (bleiben stehen)")
+			selected.clear_order()
+			_clear_path_visual()
 		return
 
-	# Normal movement
+	# Normal movement order (pending until day advances)
 	print("Suche Pfad für ", unit_type, "...")
 	var path: Array[Vector3] = hex_map.find_path(selected.get_ground_pos(), goal_center, unit_type)
 	if path.is_empty():
 		print("Kein gültiger Pfad")
 		return
 
-	print("Pfad mit ", path.size(), " Hexes gefunden")
+	path = _truncate_path(path, selected.move_points)
+	if path.size() < 2:
+		print("Ziel ist das aktuelle Hex – kein Befehl")
+		return
+
+	print("Befehl erteilt: ", path.size() - 1, " Hexes (MP: ", selected.move_points, ") – Bewegung bei Tagesende")
 	_end_combats_involving(selected)
+	selected.set_order(path)
 	_show_path(path, get_nation_color(selected.nation))
 	path_unit = selected
-	selected.follow_path(path)
 
 func _on_unit_arrived(unit: MilEntity) -> void:
 	# 1) Combat if landing on same hex as fightable enemy (Air/Ballistic)
@@ -252,7 +393,6 @@ func _on_unit_arrived(unit: MilEntity) -> void:
 			break
 
 	# 2) Territory capture / re-capture (only Land units)
-	#    Now based on current *controller*, so liberation of own territory also works
 	if unit.get_type_string() == "land" and hex_map != null:
 		var idx = hex_map.get_closest_hex_index(ground)
 		if idx >= 0:
@@ -261,8 +401,8 @@ func _on_unit_arrived(unit: MilEntity) -> void:
 				hex_map.set_controller(idx, unit.nation)
 				print("🏴 ", unit.unit_name, " übernimmt Kontrolle (war: ", controller, " → jetzt: ", unit.nation, ")")
 
-	# Clear path visual when unit finished moving
-	if path_unit == unit and not unit.moving:
+func _on_order_finished(unit: MilEntity) -> void:
+	if path_unit == unit:
 		_clear_path_visual()
 		path_unit = null
 
@@ -271,12 +411,10 @@ func _show_path(points: Array[Vector3], color: Color) -> void:
 	if points.size() < 2:
 		return
 
-	# Build a smooth Curve3D through the hex centers
 	var curve := Curve3D.new()
 	for p in points:
 		curve.add_point(Vector3(p.x, 0.45, p.z))
 
-	# Tessellate for nice rounded look
 	var baked: PackedVector3Array = curve.tessellate(6, 0.15)
 	if baked.size() < 2:
 		baked = PackedVector3Array()

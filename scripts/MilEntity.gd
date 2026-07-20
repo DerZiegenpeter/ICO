@@ -10,6 +10,10 @@ enum Type { LAND, AIR, NAVAL, BALLISTIC }
 @export var unit_name: String = ""
 @export var nation: String = ""
 
+## Movement points per day (all entities default 4)
+@export var move_points_max: int = 4
+var move_points: int = 4
+
 var target_pos: Vector3
 var selected := false
 var mesh_instance: MeshInstance3D
@@ -18,11 +22,17 @@ var path: Array[Vector3] = []
 var path_index: int = 0
 var moving := false
 
+## Pending order – executed when the day advances
+var pending_path: Array[Vector3] = []
+
 ## Emitted every time the unit arrives at a hex (intermediate + final)
 signal arrived_at_hex(unit: MilEntity)
+## Emitted when the unit finishes its entire ordered path
+signal order_finished(unit: MilEntity)
 
 func _ready() -> void:
 	target_pos = position
+	move_points = move_points_max
 	_build_mesh()
 
 func _process(delta: float) -> void:
@@ -35,7 +45,6 @@ func _process(delta: float) -> void:
 	position = position.lerp(dest, 1.0 - exp(-move_speed * delta))
 
 	if position.distance_to(dest) < 0.8:
-		# Snap + notify arrival at this hex (also for intermediate hexes)
 		position = dest
 		target_pos = dest
 		arrived_at_hex.emit(self)
@@ -44,6 +53,7 @@ func _process(delta: float) -> void:
 		if path_index >= path.size():
 			moving = false
 			path.clear()
+			order_finished.emit(self)
 		else:
 			var next = path[path_index]
 			target_pos = Vector3(next.x, _height_for_type(), next.z)
@@ -65,12 +75,38 @@ func set_hex_position(pos: Vector3) -> void:
 	path.clear()
 	moving = false
 
+func set_order(new_path: Array[Vector3]) -> void:
+	## Store a pending movement order (does not move yet)
+	if new_path.is_empty():
+		pending_path.clear()
+		return
+	pending_path = new_path.duplicate()
+
+func clear_order() -> void:
+	pending_path.clear()
+
+func has_order() -> bool:
+	return pending_path.size() >= 2
+
+func execute_order() -> void:
+	## Called when the day advances – start the actual movement
+	if pending_path.is_empty():
+		return
+	var cost = maxi(0, pending_path.size() - 1)
+	move_points = maxi(0, move_points - cost)
+	follow_path(pending_path)
+	pending_path.clear()
+
+func reset_move_points() -> void:
+	move_points = move_points_max
+
 func follow_path(new_path: Array[Vector3]) -> void:
 	if new_path.is_empty():
 		return
 	if new_path.size() == 1:
 		set_hex_position(new_path[0])
 		arrived_at_hex.emit(self)
+		order_finished.emit(self)
 		return
 	path = new_path
 	path_index = 1
