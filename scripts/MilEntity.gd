@@ -108,7 +108,8 @@ func follow_path(new_path: Array[Vector3]) -> void:
 		arrived_at_hex.emit(self)
 		order_finished.emit(self)
 		return
-	path = new_path
+	# Important: duplicate so caller can clear the original array
+	path = new_path.duplicate()
 	path_index = 1
 	moving = true
 	var next = path[path_index]
