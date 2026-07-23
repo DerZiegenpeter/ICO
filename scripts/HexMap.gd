@@ -88,35 +88,30 @@ func _load_nations() -> void:
 		var col = str(n.get("color", "#888888"))
 		if id != "":
 			nation_colors[id] = Color(col)
-	print("Nationen geladen: ", nation_colors.keys())
+	print("Nationen geladen: ", nation_colors.size(), " → ", nation_colors.keys())
 
 func get_nation_color(nation_id: String) -> Color:
-	return nation_colors.get(nation_id, Color(0.7, 0.7, 0.7))
+	if nation_id == "":
+		return land_color
+	return nation_colors.get(nation_id, Color(0.55, 0.55, 0.5))
 
-## Fallback only if JSON has no owner field
-func _guess_owner(lon: float, lat: float) -> String:
-	if lon >= 19.5 and lat >= 53.2 and lat <= 55.3:
-		return "GER"
-	if lon < 14.85:
-		return "GER"
-	return "POL"
-
-## Parse city field: accepts string name OR boolean true. Boolean false / missing = no city.
-func _parse_name_field(raw) -> String:
-	if raw == null:
-		return ""
-	var t = typeof(raw)
-	if t == TYPE_BOOL:
-		return "city" if raw else ""
-	if t == TYPE_STRING:
-		var s = str(raw).strip_edges()
-		# Guard against stringified booleans from bad exports
-		if s == "" or s.to_lower() == "false" or s == "0":
+## City / river name from new schema (city bool + city_name) or legacy fields
+func _read_place_name(h: Dictionary, flag_key: String, name_key: String) -> String:
+	var name_val = h.get(name_key, null)
+	if name_val != null:
+		var s = str(name_val).strip_edges()
+		if s != "" and s.to_lower() != "null" and s.to_lower() != "false":
+			return s
+	var flag = h.get(flag_key, null)
+	if typeof(flag) == TYPE_BOOL:
+		return flag_key if flag else ""  # "city" / "river" as placeholder
+	if typeof(flag) == TYPE_STRING:
+		var s2 = str(flag).strip_edges()
+		if s2 == "" or s2.to_lower() in ["false", "0", "null"]:
 			return ""
-		if s.to_lower() == "true":
-			return "city"
-		return s
-	# numbers or other → ignore
+		if s2.to_lower() == "true":
+			return flag_key
+		return s2
 	return ""
 
 func load_and_draw() -> void:
@@ -185,6 +180,7 @@ func load_and_draw() -> void:
 	st_pol.begin(Mesh.PRIMITIVE_TRIANGLES)
 
 	var city_count := 0
+	var owned_count := 0
 
 	for i in data.size():
 		var h = data[i]
@@ -192,25 +188,25 @@ func load_and_draw() -> void:
 		var lat = float(h.get("lat", 0.0))
 		var typ = str(h.get("type", "ocean")).to_lower()
 
-		var city_name := _parse_name_field(h.get("city", null))
-		var river_name := _parse_name_field(h.get("river", null))
-		# river boolean true without name → generic label
-		if river_name == "city":
-			river_name = "river"
+		var city_name := _read_place_name(h, "city", "city_name")
+		var river_name := _read_place_name(h, "river", "river_name")
 
+		# Owner / controller ONLY from JSON – no GER/POL geographic guess
 		var owner := str(h.get("owner", "")).strip_edges()
 		var controller := str(h.get("controller", "")).strip_edges()
 		var state := str(h.get("state", "")).strip_edges()
-
-		if typ == "land":
-			if owner == "":
-				owner = _guess_owner(lon, lat)
-			if controller == "":
-				controller = owner
+		if owner.to_lower() in ["null", "none"]:
+			owner = ""
+		if controller.to_lower() in ["null", "none"]:
+			controller = ""
+		if typ == "land" and controller == "" and owner != "":
+			controller = owner
+		if owner != "":
+			owned_count += 1
 
 		var color = ocean_color
 		if typ == "land":
-			color = get_nation_color(owner)
+			color = get_nation_color(owner) if owner != "" else land_color
 		elif typ == "lake":
 			color = lake_color
 
@@ -232,9 +228,9 @@ func load_and_draw() -> void:
 		_add_hex(st, center, color)
 
 		if typ == "land":
-			_add_hex_filled(st_pol, center, get_nation_color(owner))
+			_add_hex_filled(st_pol, center, color)
 
-		if typ == "land" and controller != "" and controller != owner:
+		if typ == "land" and controller != "" and owner != "" and controller != owner:
 			_add_hex_dashed(st_occ, center, get_nation_color(controller))
 
 		if city_name != "" and typ == "land":
@@ -291,7 +287,7 @@ func load_and_draw() -> void:
 
 	_center_camera(mesh)
 	_update_zoom_fade()
-	print("✅ HexMap fertig – ", hex_centers.size(), " Hexes, ", city_count, " Städte")
+	print("✅ HexMap fertig – ", hex_centers.size(), " Hexes, ", city_count, " Städte, ", owned_count, " mit Owner")
 
 func _add_hex_filled(st: SurfaceTool, center: Vector3, color: Color) -> void:
 	var pts: Array[Vector3] = []
@@ -334,7 +330,7 @@ func rebuild_occupation_overlay() -> void:
 			continue
 		var owner = hex_owners[i]
 		var controller = hex_controllers[i]
-		if controller != "" and controller != owner:
+		if controller != "" and owner != "" and controller != owner:
 			_add_hex_dashed(st_occ, hex_centers[i], get_nation_color(controller))
 	var mesh_occ = st_occ.commit()
 	occupation_mesh_instance.mesh = mesh_occ
