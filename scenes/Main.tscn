@@ -10,11 +10,12 @@ background_mode = 2
 [node name="Main" type="Node3D" unique_id=1397147966]
 
 [node name="Camera3D" type="Camera3D" parent="." unique_id=1564211600]
-transform = Transform3D(1, 0, 0, 0, 0.5, 0.86602557, 0, -0.86602557, 0.5, 0, 80, 0)
+transform = Transform3D(1, 0, 0, 0, -4.3711392e-08, 1.0000001, 0, -1.0000001, -4.3711392e-08, 3.6015625, 20793.627, 4.5)
 script = ExtResource("3_vcsgt")
 
 [node name="HexMap" type="Node3D" parent="." unique_id=716895893]
 script = ExtResource("2_0bbpv")
+json_path = "res://data/hex_minimal.json"
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=2072058528]
 environment = SubResource("Environment_0bj4a")

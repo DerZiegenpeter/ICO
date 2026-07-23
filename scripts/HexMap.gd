@@ -1,7 +1,7 @@
 @tool
 extends Node3D
 
-@export var json_path: String = "res://data/hex_minimal.json"
+@export var json_path: String = "res://data/hex_minimal2.json"
 @export var nations_path: String = "res://data/nations.json"
 @export var scale_factor: float = 100.0
 @export var hex_size: float = 0.104
