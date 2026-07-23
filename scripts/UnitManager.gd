@@ -24,6 +24,8 @@ var day: int = 23
 var date_label: Label
 var hint_label: Label
 var resolving := false
+## True after end_turn started movements – wait until all animations done
+var waiting_for_moves := false
 
 const MONTH_NAMES := [
 	"", "Januar", "Februar", "März", "April", "Mai", "Juni",
@@ -39,6 +41,15 @@ func _ready() -> void:
 	_load_diplomacy()
 	_load_oob()
 	_update_date_label()
+
+func _process(_delta: float) -> void:
+	if not waiting_for_moves:
+		return
+	# Stay locked until every unit finished its animation this turn
+	for u in units:
+		if u.moving:
+			return
+	_finish_turn_resolution()
 
 func _setup_ui() -> void:
 	var canvas := CanvasLayer.new()
@@ -100,7 +111,7 @@ func _days_in_month(y: int, m: int) -> int:
 	return 30
 
 func end_turn() -> void:
-	if resolving:
+	if resolving or waiting_for_moves:
 		return
 	resolving = true
 	print("========== Tag endet → ", day, ".", month, ".", year, " ==========")
@@ -117,13 +128,23 @@ func end_turn() -> void:
 			moved += 1
 	print("Bewegungsbefehle ausgeführt: ", moved)
 
+	if moved > 0:
+		# Lock input until all movement animations finish
+		waiting_for_moves = true
+		if hint_label:
+			hint_label.text = "Züge werden ausgeführt…"
+	else:
+		_finish_turn_resolution()
+
+func _finish_turn_resolution() -> void:
+	waiting_for_moves = false
 	_advance_day()
 	print("Neuer Tag: ", day, ". ", MONTH_NAMES[month], " ", year)
-
 	for u in units:
 		u.reset_points()
-
 	resolving = false
+	if hint_label:
+		hint_label.text = "Leertaste = Nächster Tag"
 
 func _resolve_pending_combats() -> void:
 	for u in units:
@@ -139,6 +160,9 @@ func _resolve_pending_combats() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_SPACE:
+			if resolving or waiting_for_moves:
+				get_viewport().set_input_as_handled()
+				return
 			end_turn()
 			get_viewport().set_input_as_handled()
 
@@ -254,7 +278,7 @@ func _load_oob() -> void:
 	print("OOB geladen – Einheiten: ", units.size())
 
 func _input(event: InputEvent) -> void:
-	if resolving:
+	if resolving or waiting_for_moves:
 		return
 	if not (event is InputEventMouseButton and event.pressed):
 		return
