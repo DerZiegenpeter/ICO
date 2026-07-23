@@ -10,6 +10,7 @@ extends Node3D
 @export var neighbor_dist: float = 0.0
 
 @export var land_color: Color = Color(0.2, 0.72, 0.28)
+@export var unowned_land_color: Color = Color(1.0, 0.2, 0.75)  # Pink – land ohne Nation
 @export var ocean_color: Color = Color(0.15, 0.42, 0.92)
 @export var lake_color: Color = Color(0.4, 0.75, 0.98)
 
@@ -92,7 +93,7 @@ func _load_nations() -> void:
 
 func get_nation_color(nation_id: String) -> Color:
 	if nation_id == "":
-		return land_color
+		return unowned_land_color
 	return nation_colors.get(nation_id, Color(0.55, 0.55, 0.5))
 
 ## City / river name from new schema (city bool + city_name) or legacy fields
@@ -181,6 +182,7 @@ func load_and_draw() -> void:
 
 	var city_count := 0
 	var owned_count := 0
+	var unowned_land := 0
 
 	for i in data.size():
 		var h = data[i]
@@ -203,10 +205,13 @@ func load_and_draw() -> void:
 			controller = owner
 		if owner != "":
 			owned_count += 1
+		elif typ == "land":
+			unowned_land += 1
 
 		var color = ocean_color
 		if typ == "land":
-			color = get_nation_color(owner) if owner != "" else land_color
+			# Pink if land has no nation – easy to spot gaps
+			color = get_nation_color(owner) if owner != "" else unowned_land_color
 		elif typ == "lake":
 			color = lake_color
 
@@ -287,7 +292,7 @@ func load_and_draw() -> void:
 
 	_center_camera(mesh)
 	_update_zoom_fade()
-	print("✅ HexMap fertig – ", hex_centers.size(), " Hexes, ", city_count, " Städte, ", owned_count, " mit Owner")
+	print("✅ HexMap fertig – ", hex_centers.size(), " Hexes, ", city_count, " Städte, ", owned_count, " mit Owner, ", unowned_land, " Land ohne Nation (pink)")
 
 func _add_hex_filled(st: SurfaceTool, center: Vector3, color: Color) -> void:
 	var pts: Array[Vector3] = []
